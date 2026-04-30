@@ -1,0 +1,37 @@
+// [
+//     {
+//         "id": "1",
+//         "label": "Clubs",
+//         "href": "/"
+//     },
+//     {
+//         "id": "2",
+//         "label": "Year book",
+//         "href": "/yearbook"
+//     },
+//     {
+//         "id": "3",
+//         "label": "Forms",
+//         "href": "/forms"
+//     },
+//     {
+//         "id": "4",
+//         "label": "Rules",
+//         "href": "/rules"
+//     },
+//     {
+//         "id": "5",
+//         "label": "Calendar",
+//         "href": "/calendar"
+//     },
+//     {
+//         "id": "6",
+//         "label": "Contact page",
+//         "href": "/contact"
+//     },
+//     {
+//         "id": "7",
+//         "label": "Club Contacts",
+//         "href": "/club-contacts"
+//     }
+// ]

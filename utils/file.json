@@ -1,0 +1,22 @@
+[
+    {
+        "formName": "Musher Registration Application",
+        "formType": "Musher Registration",
+        "file": "NZFSS Registration Form 2023"
+    },
+    {
+        "formName": "Trail Use Permit Application",
+        "formType": "Permit Application",
+        "file": "Trail Use Permit 2023"
+    },
+    {
+        "formName": "Event Registration Form",
+        "formType": "Event Registration",
+        "file": "Event Registration 2023"
+    },
+    {
+        "formName": "Membership Application",
+        "formType": "Membership",
+        "file": "Membership Form 2023"
+    }
+]

@@ -1,0 +1,17 @@
+// [
+//     {
+//         "id": "1",
+//         "label": "Events",
+//         "href": "/events"
+//     },
+//     {
+//         "id": "2",
+//         "label": "Club Detail",
+//         "href": "/(dashboard)/(clubdetails)"
+//     },
+//     {
+//         "id": "3",
+//         "label": "Mushers",
+//         "href": "/Mushers"
+//     }
+// ]

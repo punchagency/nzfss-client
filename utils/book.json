@@ -1,0 +1,42 @@
+[
+    {
+        "yearbook": "Yearbook Name.pdf",
+        "yearPublished": 2001
+    },
+    {
+        "yearbook": "The Great Gatsby.pdf",
+        "yearPublished": 1925
+    },
+    {
+        "yearbook": "To Kill a Mockingbird.pdf",
+        "yearPublished": 1960
+    },
+    {
+        "yearbook": "1984.pdf",
+        "yearPublished": 1949
+    },
+    {
+        "yearbook": "Pride and Prejudice.pdf",
+        "yearPublished": 1813
+    },
+    {
+        "yearbook": "The Catcher in the Rye.pdf",
+        "yearPublished": 1951
+    },
+    {
+        "yearbook": "Moby-Dick.pdf",
+        "yearPublished": 1851
+    },
+    {
+        "yearbook": "War and Peace.pdf",
+        "yearPublished": 1869
+    },
+    {
+        "yearbook": "The Odyssey.pdf",
+        "yearPublished": 1800
+    },
+    {
+        "yearbook": "The Book Thief.pdf",
+        "yearPublished": 2005
+    }
+]

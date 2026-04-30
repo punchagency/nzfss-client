@@ -1,0 +1,1 @@
+// This file can be removed since we've moved the queries to clubs.ts
