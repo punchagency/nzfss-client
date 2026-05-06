@@ -15,6 +15,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useYearbooks } from "@/service/yearbookService";
 import { getBase64 } from "@/utils/upload";
+import {
+  YEARBOOK_MAX_FILE_SIZE_BYTES,
+  YEARBOOK_MAX_FILE_SIZE_MB,
+} from "@/constants/upload";
 import { Loader } from "lucide-react";
 import Image from "next/image";
 import { ChangeEvent, useState } from "react";
@@ -39,7 +43,7 @@ const YourbookTrigger = ({ btn }: ClubTriggerProps) => {
     const { files } = e.target;
     if (files && files[0]) {
       const file = files[0];
-      const maxSize = 500 * 1024; // 500KB size limit
+      const maxSize = YEARBOOK_MAX_FILE_SIZE_BYTES;
       const fileSize = file.size;
 
        // Store the file name
@@ -135,7 +139,7 @@ const YourbookTrigger = ({ btn }: ClubTriggerProps) => {
 
               {!uploadComplete && !loadingState && imageSizeLimit && (
                 <div className="text-[18px] text-red-500 font-[700]">
-                  File size exceeds 500KB
+                  File size exceeds {YEARBOOK_MAX_FILE_SIZE_MB}MB
                 </div>
               )}
 
