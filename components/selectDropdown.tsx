@@ -8,13 +8,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import data from "@/utils/publishyear.json"
 
 interface SelectDropdownProps {
   setYearPublish: React.Dispatch<React.SetStateAction<string>>;
 }
 
+function getPublishYears(): number[] {
+  const startYear = 1970;
+  const currentYear = new Date().getFullYear();
+  const years: number[] = [];
+
+  for (let year = startYear; year <= currentYear; year += 1)
+    years.push(year);
+
+  return years;
+}
+
 export function SelectDropdown({setYearPublish}:SelectDropdownProps) {
+  const publishYears = getPublishYears();
+
   return (
     <Select onValueChange={setYearPublish}>
       <SelectTrigger className="w-full h-[52px]">
@@ -24,8 +36,8 @@ export function SelectDropdown({setYearPublish}:SelectDropdownProps) {
         <SelectGroup>
           <SelectLabel>Select published year</SelectLabel>
           {
-            data.map((item, i)=> (
-              <SelectItem key={i} value={String(item.value)}>{item.label}</SelectItem>
+            publishYears.map((year) => (
+              <SelectItem key={year} value={String(year)}>{year}</SelectItem>
             ))
           }
         </SelectGroup>
