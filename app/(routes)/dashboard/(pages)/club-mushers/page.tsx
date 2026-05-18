@@ -55,6 +55,11 @@ const GET_CLUB_MUSHERS = gql`
             registrationNo
             kennelRegistrationNo
             club
+            address
+            phone
+            email
+            dateOfBirth
+            guardianDetails
             dogs {
                 name
                 pedigreeName
@@ -79,6 +84,11 @@ const GET_MUSHERS = gql`
             registrationNo
             kennelRegistrationNo
             club
+            address
+            phone
+            email
+            dateOfBirth
+            guardianDetails
             dogs {
                 name
                 pedigreeName
@@ -124,6 +134,11 @@ interface Musher {
     registrationNo: string;
     kennelRegistrationNo: string;
     club?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    dateOfBirth?: string;
+    guardianDetails?: string;
     dogs: Dog[];
 }
 
@@ -164,6 +179,11 @@ const UPDATE_MUSHER = gql`
             registrationNo
             kennelRegistrationNo
             club
+            address
+            phone
+            email
+            dateOfBirth
+            guardianDetails
             dogs {
                 name
                 pedigreeName
@@ -199,6 +219,11 @@ export default function ClubMushers() {
         name: "",
         registrationNo: "",
         kennelRegistrationNo: "",
+        address: "",
+        phone: "",
+        email: "",
+        dateOfBirth: "",
+        guardianDetails: "",
         dogs: [] as Dog[]
     });
 
@@ -331,6 +356,11 @@ export default function ClubMushers() {
             name: musher.name || '',
             registrationNo: musher.registrationNo || '',
             kennelRegistrationNo: musher.kennelRegistrationNo || '',
+            address: musher.address || '',
+            phone: musher.phone || '',
+            email: musher.email || '',
+            dateOfBirth: musher.dateOfBirth || '',
+            guardianDetails: musher.guardianDetails || '',
             dogs: musher.dogs.map(dog => ({
                 name: dog.name || '',
                 pedigreeName: dog.pedigreeName || '',
@@ -363,6 +393,11 @@ export default function ClubMushers() {
                 name: formData.name || undefined,
                 registrationNo: formData.registrationNo || undefined,
                 kennelRegistrationNo: formData.kennelRegistrationNo || undefined,
+                address: formData.address || undefined,
+                phone: formData.phone || undefined,
+                email: formData.email || undefined,
+                dateOfBirth: formData.dateOfBirth || undefined,
+                guardianDetails: formData.guardianDetails || undefined,
                 dogs: cleanedDogs.map(dog => {
                     type DogKey = keyof typeof dog;
                     const cleanDog = { ...dog };
@@ -394,6 +429,11 @@ export default function ClubMushers() {
                 name: '',
                 registrationNo: '',
                 kennelRegistrationNo: '',
+                address: '',
+                phone: '',
+                email: '',
+                dateOfBirth: '',
+                guardianDetails: '',
                 dogs: []
             });
         }
@@ -728,6 +768,52 @@ export default function ClubMushers() {
                                     id="kennelRegistrationNo"
                                     value={formData.kennelRegistrationNo}
                                     onChange={(e) => setFormData({ ...formData, kennelRegistrationNo: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="address">Address</Label>
+                                <Input
+                                    id="address"
+                                    value={formData.address}
+                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="phone">Phone</Label>
+                                    <Input
+                                        id="phone"
+                                        type="tel"
+                                        value={formData.phone}
+                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="email">Email</Label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                                <Input
+                                    id="dateOfBirth"
+                                    type="date"
+                                    value={formData.dateOfBirth}
+                                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="guardianDetails">Guardian (if junior)</Label>
+                                <Input
+                                    id="guardianDetails"
+                                    value={formData.guardianDetails}
+                                    onChange={(e) => setFormData({ ...formData, guardianDetails: e.target.value })}
+                                    placeholder="Full name and contact"
                                 />
                             </div>
                             <div className="grid gap-2">

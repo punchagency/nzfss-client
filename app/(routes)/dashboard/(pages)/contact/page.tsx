@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, Suspense } from 'react'
+import React, { useState, Suspense, useMemo } from 'react'
 import ActionIcons from '@/app/(routes)/_components/actions_ buttons'; 
 import { Trash2, Plus, X } from 'lucide-react';
 import Image from "next/image";
@@ -94,7 +94,6 @@ const ContactPageContent = () => {
   const nzfssClubId = "682f0ad809bd8de49c9f8fb0";
   
   const { data: contactsData, error, loading, client } = useQuery<GetAllContactsData>(GET_CLUB_CONTACTS, {
-    variables: { userId: nzfssClubId },
     fetchPolicy: "cache-and-network",
   });
   const { searchQuery } = useSearch();
@@ -143,7 +142,7 @@ const ContactPageContent = () => {
                 image: imageString,
               },
             },
-            refetchQueries: [{ query: GET_CLUB_CONTACTS, variables: { userId: nzfssClubId } }],
+            refetchQueries: [{ query: GET_CLUB_CONTACTS }],
           });
           console.log('Contact created:', response.data);
           toast({
@@ -165,7 +164,7 @@ const ContactPageContent = () => {
           variables: {
             input: createContactInput,
           },
-          refetchQueries: [{ query: GET_CLUB_CONTACTS, variables: { userId: nzfssClubId } }],
+          refetchQueries: [{ query: GET_CLUB_CONTACTS }],
         });
         console.log('Contact created:', response.data);
         toast({
@@ -201,7 +200,7 @@ const ContactPageContent = () => {
             image: editingContact.image
           }
         },
-        refetchQueries: [{ query: GET_CLUB_CONTACTS, variables: { userId: nzfssClubId } }]
+        refetchQueries: [{ query: GET_CLUB_CONTACTS }]
       });
       setShowEditModal(false);
       setEditingContact(null);
@@ -221,7 +220,6 @@ const ContactPageContent = () => {
     // Store the current data for potential rollback
     const previousData = client.readQuery<GetAllContactsData>({
       query: GET_CLUB_CONTACTS,
-      variables: { userId: nzfssClubId },
     });
 
     if (!previousData) {
@@ -235,7 +233,6 @@ const ContactPageContent = () => {
     // Optimistically update the UI
     client.writeQuery<GetAllContactsData>({
       query: GET_CLUB_CONTACTS,
-      variables: { userId: nzfssClubId },
       data: {
         getAllContacts: previousData.getAllContacts.filter(contact => contact._id !== id),
       },
@@ -255,7 +252,6 @@ const ContactPageContent = () => {
       // Revert the optimistic update on error
       client.writeQuery<GetAllContactsData>({
         query: GET_CLUB_CONTACTS,
-        variables: { userId: nzfssClubId },
         data: previousData,
       });
       toast({
@@ -264,6 +260,36 @@ const ContactPageContent = () => {
       });
     }
   };
+
+  const nzfssContacts = useMemo(() => {
+    if (!contactsData?.getAllContacts) return [];
+    return contactsData.getAllContacts.filter(
+      (contact: Contact) => contact.club === nzfssClubId
+    );
+  }, [contactsData?.getAllContacts, nzfssClubId]);
+
+  const filteredData = useMemo(() => {
+    return nzfssContacts
+      .filter((contact: Contact) => {
+        if (searchQuery && searchQuery.trim() !== '') {
+          const query = searchQuery.toLowerCase();
+          return (
+            contact.name.toLowerCase().includes(query) ||
+            contact.designation.toLowerCase().includes(query) ||
+            contact.email.toLowerCase().includes(query)
+          );
+        }
+        return true;
+      })
+      .map((contact: Contact) => ({
+        image: contact.image,
+        name: contact.name,
+        designation: contact.designation,
+        email: contact.email,
+        action: "",
+        _id: contact._id,
+      }));
+  }, [nzfssContacts, searchQuery]);
 
   if (loading) {
     return (
@@ -282,29 +308,6 @@ const ContactPageContent = () => {
       </div>
     );
   }
-
-  const filteredData = contactsData?.getAllContacts
-  ?.filter((contact: Contact) => {
-    // Apply search query if it exists
-    if (searchQuery && searchQuery.trim() !== '') {
-      const query = searchQuery.toLowerCase();
-      return (
-        contact.name.toLowerCase().includes(query) ||
-        contact.designation.toLowerCase().includes(query) ||
-        contact.email.toLowerCase().includes(query)
-      );
-    }
-    
-    return true;
-  })
-  .map((contact: Contact) => ({
-    image: contact.image,
-    name: contact.name,
-    designation: contact.designation,
-    email: contact.email,
-    action: "",
-    _id: contact._id,
-  })) || [];
 
   return (
     <div className="container mx-auto p-4 -mt-32 rounded-lg">
@@ -368,7 +371,7 @@ const ContactPageContent = () => {
                                 variant="ghost"
                                 size="sm"
                                 className="w-[48px] h-[46px] flex items-center justify-center rounded-[16px] border border-[#00000033] hover:bg-gray-200 hover:scale-105 transition-all duration-200"
-                                onClick={() => handleEditContact(contactsData?.getAllContacts.find(c => c._id === contact._id) as Contact)}
+                                onClick={() => handleEditContact(nzfssContacts.find(c => c._id === contact._id) as Contact)}
                               >
                                 <Pencil className="h-[14px] w-[14px] text-[#323232]" />
                               </Button>
@@ -387,7 +390,7 @@ const ContactPageContent = () => {
                                 size="sm"
                                 className="w-[48px] h-[46px] flex items-center justify-center rounded-[16px] border border-[#00000033] hover:bg-gray-200 hover:scale-105 transition-all duration-200"
                                 onClick={() => {
-                                  setEditingContact(contactsData?.getAllContacts.find(c => c._id === contact._id) as Contact);
+                                  setEditingContact(nzfssContacts.find(c => c._id === contact._id) as Contact);
                                   setShowDeleteModal(true);
                                 }}
                               >

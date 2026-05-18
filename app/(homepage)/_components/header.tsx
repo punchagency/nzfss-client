@@ -186,7 +186,7 @@ const Header: React.FC = () => {
                   )}
                 </Link>
                 {route.sub && activeDropdown === route.label && (
-                  <div className="absolute top-[56px] lg:top-[2.92vw] left-0 bg-white shadow-md rounded-[10px] w-[200px] lg:w-[10.42vw]">
+                  <div className="absolute top-[56px] lg:top-[2.92vw] left-0 z-[100] max-h-[420px] w-[200px] overflow-y-auto rounded-[10px] border border-[#e7e8ea] bg-[#f8f9fb] shadow-[0_18px_45px_rgba(16,24,40,0.18)] lg:w-[10.42vw]">
                     {route.sub.map((subRoute, subIndex) => (
                       route.label === "Yearbook Current" ? (
                         <a

@@ -48,14 +48,19 @@ const UpdateYearbook = ({ open, onClose, yearbook}: UpdateYearbookTriggerProps) 
       const maxSize = YEARBOOK_MAX_FILE_SIZE_BYTES;
       const fileSize = file.size;
 
-      // Store the file name
-      setSelectedFileName(file.name);
+      // Clear previously selected file state before handling the next upload.
+      setYearbookFileBase64(null);
+      setUploadComplete(false);
+      setSelectedFileName(null);
+      setLoading(false);
 
       if (fileSize && fileSize > maxSize) {
         setImageSizeLimit(true); // File size exceeds limit
+        e.target.value = "";
         return;
       }
       setImageSizeLimit(false);
+      setSelectedFileName(file.name);
 
       // Trigger loading state and simulate file processing time
       setLoading(true);
@@ -76,6 +81,22 @@ const UpdateYearbook = ({ open, onClose, yearbook}: UpdateYearbookTriggerProps) 
     e.preventDefault();
 
     try {
+      if (imageSizeLimit) {
+        toast({
+          variant: "destructive",
+          description: `File size exceeds ${YEARBOOK_MAX_FILE_SIZE_MB}MB`,
+        });
+        return;
+      }
+
+      if (!yearbookFileBase64 || !yearPublish) {
+        toast({
+          variant: "destructive",
+          description: "Please upload a yearbook and select a year",
+        });
+        return;
+      }
+
 
       // Trigger the addClub mutation with form values
        await updateYearbook({
@@ -167,6 +188,9 @@ const UpdateYearbook = ({ open, onClose, yearbook}: UpdateYearbookTriggerProps) 
                   accept=".pdf,.docx"
                   onChange={handleLogoUpload}
                 />
+                <p className="text-center text-xs text-[#696A6A]">
+                  Max file size: {YEARBOOK_MAX_FILE_SIZE_MB}MB
+                </p>
               </div>
             </div>
 
