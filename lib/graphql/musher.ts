@@ -1,5 +1,13 @@
 import { gql } from "@apollo/client";
 
+const MUSHER_CONTACT_FIELDS = `
+  address
+  phone
+  email
+  dateOfBirth
+  guardianDetails
+`;
+
 export const GET_MUSHERS = gql`
   query GetMushers {
     getMushers {
@@ -7,6 +15,7 @@ export const GET_MUSHERS = gql`
       name
       registrationNo
       kennelRegistrationNo
+      ${MUSHER_CONTACT_FIELDS}
       dogs {
         name
         pedigreeName
@@ -30,6 +39,7 @@ export const GET_MUSHER_BY_ID = gql`
       registrationNo
       kennelRegistrationNo
       clubId
+      ${MUSHER_CONTACT_FIELDS}
       dogs {
         name
         pedigreeName
@@ -53,6 +63,7 @@ export const CREATE_MUSHER = gql`
       registrationNo
       kennelRegistrationNo
       showProfileConsent
+      ${MUSHER_CONTACT_FIELDS}
       dogs {
         name
         pedigreeName
@@ -76,6 +87,7 @@ export const UPDATE_MUSHER = gql`
       registrationNo
       kennelRegistrationNo
       showProfileConsent
+      ${MUSHER_CONTACT_FIELDS}
       dogs {
         name
         pedigreeName
