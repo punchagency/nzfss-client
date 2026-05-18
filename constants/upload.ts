@@ -6,3 +6,5 @@ export const YEARBOOK_MAX_FILE_SIZE_MB =
     ? configuredLimit
     : DEFAULT_YEARBOOK_MAX_FILE_SIZE_MB;
 export const YEARBOOK_MAX_FILE_SIZE_BYTES = YEARBOOK_MAX_FILE_SIZE_MB * 1024 * 1024;
+
+//

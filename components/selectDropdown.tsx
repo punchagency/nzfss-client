@@ -32,7 +32,7 @@ export function SelectDropdown({setYearPublish}:SelectDropdownProps) {
       <SelectTrigger className="w-full h-[52px]">
         <SelectValue placeholder="Select published year" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="max-h-72 overflow-y-auto bg-white">
         <SelectGroup>
           <SelectLabel>Select published year</SelectLabel>
           {

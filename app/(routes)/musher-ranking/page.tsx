@@ -104,14 +104,14 @@ interface EventClasses {
 }
 
 type ClassKey = 'speed' | 'freight' | 'snow' | 'weightPull';
-type SubClassKey = 'skijoring' | 'twoDogRig' | 'threeDogRig' | 'fourDogRig' | 'sixDogRig' | 'eightDogRig' | 'openClassRig' | 'singleDogScooter' | 'canicross' | 'bikejoring' | 'weightPull27kg' | 'weightPull36kg' | 'weightPull50kg' | 'weightPullUnlimited';
+type SubClassKey = 'skijoring' | 'twoDogScooter' | 'twoDogRig' | 'threeDogRig' | 'fourDogRig' | 'sixDogRig' | 'eightDogRig' | 'openClassRig' | 'singleDogScooter' | 'canicross' | 'bikejoring' | 'weightPull27kg' | 'weightPull36kg' | 'weightPull50kg' | 'weightPullUnlimited';
 
 interface ClassHierarchy {
   title: string;
   subClasses: Partial<Record<SubClassKey, string>>;
 }
 
-const VALID_SUBCLASS_KEYS = ['skijoring', 'twoDogRig', 'threeDogRig', 'fourDogRig', 'sixDogRig', 'eightDogRig', 'openClassRig', 'singleDogScooter', 'canicross', 'bikejoring', 'weightPull27kg', 'weightPull36kg', 'weightPull50kg', 'weightPullUnlimited'] as const;
+const VALID_SUBCLASS_KEYS = ['skijoring', 'twoDogScooter', 'twoDogRig', 'threeDogRig', 'fourDogRig', 'sixDogRig', 'eightDogRig', 'openClassRig', 'singleDogScooter', 'canicross', 'bikejoring', 'weightPull27kg', 'weightPull36kg', 'weightPull50kg', 'weightPullUnlimited'] as const;
 
 const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
   speed: {
@@ -120,6 +120,8 @@ const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
       canicross: "Canicross",
       bikejoring: "Bikejoring",
       skijoring: "Skijoring",
+      singleDogScooter: "Single Dog",
+      twoDogScooter: "2-Dog Scooter",
       twoDogRig: "2-Dog Rig",
       threeDogRig: "3-Dog Rig",
       fourDogRig: "4-Dog Rig",
@@ -133,6 +135,8 @@ const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
     subClasses: {
       bikejoring: "Bikejoring",
       skijoring: "Skijoring",
+      singleDogScooter: "Single Dog",
+      twoDogScooter: "2-Dog Scooter",
       twoDogRig: "2-Dog Rig",
       threeDogRig: "3-Dog Rig",
       fourDogRig: "4-Dog Rig",
@@ -147,6 +151,8 @@ const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
       canicross: "Canicross",
       bikejoring: "Bikejoring",
       skijoring: "Skijoring",
+      singleDogScooter: "Single Dog",
+      twoDogScooter: "2-Dog Scooter",
       twoDogRig: "2-Dog Rig",
       threeDogRig: "3-Dog Rig",
       fourDogRig: "4-Dog Rig",
@@ -239,9 +245,19 @@ const MusherRankingPage = () => {
                   customClassLower.includes('three') || 
                   customClassLower.includes('3 dog')) {
           subClassKey = 'threeDogRig';
-        } else if (customClassLower.includes('2-dog') || 
-                  customClassLower.includes('two') || 
-                  customClassLower.includes('2 dog')) {
+        } else if (
+          customClassLower.includes('scooter') &&
+          (customClassLower.includes('two') ||
+            customClassLower.includes('2-dog') ||
+            customClassLower.includes('2 dog'))
+        ) {
+          subClassKey = 'twoDogScooter';
+        } else if (
+          (customClassLower.includes('2-dog') ||
+            customClassLower.includes('two') ||
+            customClassLower.includes('2 dog')) &&
+          !customClassLower.includes('scooter')
+        ) {
           subClassKey = 'twoDogRig';
         } else if (customClassLower.includes('4-dog') || 
                   customClassLower.includes('four') || 
