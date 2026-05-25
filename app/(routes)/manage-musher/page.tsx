@@ -81,9 +81,35 @@ interface Musher {
   name: string;
   registrationNo: string;
   kennelRegistrationNo: string;
+  address: string;
+  phone: string;
+  email: string;
+  dateOfBirth: string;
+  guardianDetails: string;
   associatedDogs: Dog[];
   showProfileConsent: boolean;
 }
+
+const createEmptyMusher = (): Musher => ({
+  name: '',
+  registrationNo: '',
+  kennelRegistrationNo: '',
+  address: '',
+  phone: '',
+  email: '',
+  dateOfBirth: '',
+  guardianDetails: '',
+  associatedDogs: [{
+    name: '',
+    pedigreeName: '',
+    nzkcNo: '',
+    nzfssNo: '',
+    dob: '',
+    breed: '',
+    deceased: false
+  }],
+  showProfileConsent: false
+});
 
 interface TopHeaderProps {
     searchQuery: string;
@@ -99,6 +125,11 @@ const GET_CLUB_MUSHERS_SAFE = gql`
       registrationNo
       kennelRegistrationNo
       showProfileConsent
+      address
+      phone
+      email
+      dateOfBirth
+      guardianDetails
       dogs {
         name
         pedigreeName
@@ -174,9 +205,18 @@ const APPROVE_FORM = gql`
       _id
       status
       formType
+      club
+      affiliationFrom
+      affiliationTo
       firstName
       surname
       applicantName
+      address
+      dateOfBirth
+      phone
+      email
+      guardianDetails
+      nzfssRegistrationNumber
       showProfileConsent
     }
   }
@@ -197,38 +237,10 @@ const ManageClubMusher = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deletingMusherId, setDeletingMusherId] = useState<string | null>(null);
-    const [newMusher, setNewMusher] = useState<Musher>({
-        name: '',
-        registrationNo: '',
-        kennelRegistrationNo: '',
-        associatedDogs: [{
-            name: '',
-            pedigreeName: '',
-            nzkcNo: '',
-            nzfssNo: '',
-            dob: '',
-            breed: '',
-            deceased: false
-        }],
-        showProfileConsent: false
-    });
+    const [newMusher, setNewMusher] = useState<Musher>(createEmptyMusher());
     const [isEditing, setIsEditing] = useState(false);
     const [editingMusherId, setEditingMusherId] = useState('');
-    const [initialMusherState, setInitialMusherState] = useState<Musher>({
-        name: '',
-        registrationNo: '',
-        kennelRegistrationNo: '',
-        associatedDogs: [{
-            name: '',
-            pedigreeName: '',
-            nzkcNo: '',
-            nzfssNo: '',
-            dob: '',
-            breed: '',
-            deceased: false
-        }],
-        showProfileConsent: false
-    });
+    const [initialMusherState, setInitialMusherState] = useState<Musher>(createEmptyMusher());
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [localMushers, setLocalMushers] = useState<any[]>([]);
@@ -406,6 +418,11 @@ const ManageClubMusher = () => {
                 name: newMusher.name.trim() || "Unnamed Musher",
                 registrationNo: newMusher.registrationNo ? newMusher.registrationNo.trim() : "",
                 kennelRegistrationNo: newMusher.kennelRegistrationNo || "",
+                address: newMusher.address || "",
+                phone: newMusher.phone || "",
+                email: newMusher.email || "",
+                dateOfBirth: newMusher.dateOfBirth || "",
+                guardianDetails: newMusher.guardianDetails || "",
                 clubId: user?._id,
                 showProfileConsent: newMusher.showProfileConsent,
                 dogs: newMusher.associatedDogs.map(dog => ({
@@ -451,21 +468,7 @@ const ManageClubMusher = () => {
             }
 
             setIsModalOpen(false);
-            setNewMusher({
-                name: '',
-                registrationNo: '',
-                kennelRegistrationNo: '',
-                associatedDogs: [{
-                    name: '',
-                    pedigreeName: '',
-                    nzkcNo: '',
-                    nzfssNo: '',
-                    dob: '',
-                    breed: '',
-                    deceased: false
-                }],
-                showProfileConsent: false
-            });
+            setNewMusher(createEmptyMusher());
         } catch (error) {
             if (error instanceof yup.ValidationError) {
                 // Transform validation errors into a more usable format
@@ -531,25 +534,27 @@ const ManageClubMusher = () => {
                 const approvedForm = result.data.approveForm;
                 const musherName = `${approvedForm.firstName} ${approvedForm.surname}`.trim();
                 
+                const mergeApprovedContact = (musher: any) => ({
+                    ...musher,
+                    registrationNo: approvedForm.nzfssRegistrationNumber || musher.registrationNo,
+                    address: approvedForm.address || musher.address,
+                    phone: approvedForm.phone || musher.phone,
+                    email: approvedForm.email || musher.email,
+                    dateOfBirth: approvedForm.dateOfBirth || musher.dateOfBirth,
+                    guardianDetails: approvedForm.guardianDetails || musher.guardianDetails,
+                    showProfileConsent: approvedForm.showProfileConsent
+                });
+
                 setLocalMushers(prev => {
-                    const updated = prev.map(musher => {
-                        // Match by the constructed name (firstName + surname) - case insensitive
+                    return prev.map(musher => {
                         if (musher.name.toLowerCase().trim() === musherName.toLowerCase().trim()) {
-                            return {
-                                ...musher,
-                                showProfileConsent: approvedForm.showProfileConsent
-                            };
+                            return mergeApprovedContact(musher);
                         }
-                        // Fallback: try matching by applicantName - case insensitive
-                        if (musher.name.toLowerCase().trim() === approvedForm.applicantName.toLowerCase().trim()) {
-                            return {
-                                ...musher,
-                                showProfileConsent: approvedForm.showProfileConsent
-                            };
+                        if (approvedForm.applicantName && musher.name.toLowerCase().trim() === approvedForm.applicantName.toLowerCase().trim()) {
+                            return mergeApprovedContact(musher);
                         }
                         return musher;
                     });
-                    return updated;
                 });
             }
 
@@ -583,21 +588,7 @@ const ManageClubMusher = () => {
 
     // Create a function to reset the form
     const resetForm = () => {
-        setNewMusher({
-            name: '',
-            registrationNo: '',
-            kennelRegistrationNo: '',
-            associatedDogs: [{
-                name: '',
-                pedigreeName: '',
-                nzkcNo: '',
-                nzfssNo: '',
-                dob: '',
-                breed: '',
-                deceased: false
-            }],
-            showProfileConsent: false
-        });
+        setNewMusher(createEmptyMusher());
         setValidationErrors({});
         setIsEditing(false);
         setEditingMusherId('');
@@ -659,21 +650,9 @@ const ManageClubMusher = () => {
                                         setIsEditing(false);
                                         setEditingMusherId('');
                                         setValidationErrors({});
-                                        setInitialMusherState({
-                                            name: "",
-                                            registrationNo: "",
-                                            kennelRegistrationNo: "",
-                                            associatedDogs: [{
-                                                name: "",
-                                                pedigreeName: "",
-                                                nzkcNo: "",
-                                                nzfssNo: "",
-                                                dob: "",
-                                                breed: "",
-                                                deceased: false
-                                            }],
-                                            showProfileConsent: false
-                                        });
+                                        const emptyMusher = createEmptyMusher();
+                                        setNewMusher(emptyMusher);
+                                        setInitialMusherState(emptyMusher);
                                     }}
                                 >
                                     + Add New Musher
@@ -742,6 +721,59 @@ const ManageClubMusher = () => {
                                     placeholder="Enter registration number"
                                     value={newMusher.kennelRegistrationNo}
                                     onChange={(e) => setNewMusher({...newMusher, kennelRegistrationNo: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-[1.1vw] font-[600] mb-2">Address</label>
+                            <input
+                                type="text"
+                                className="w-full p-3 border rounded-lg text-base"
+                                placeholder="Enter address"
+                                value={newMusher.address}
+                                onChange={(e) => setNewMusher({...newMusher, address: e.target.value})}
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-[1.1vw] font-[600] mb-2">Phone</label>
+                                <input
+                                    type="tel"
+                                    className="w-full p-3 border rounded-lg text-base"
+                                    placeholder="Enter phone number"
+                                    value={newMusher.phone}
+                                    onChange={(e) => setNewMusher({...newMusher, phone: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[1.1vw] font-[600] mb-2">Email</label>
+                                <input
+                                    type="email"
+                                    className="w-full p-3 border rounded-lg text-base"
+                                    placeholder="Enter email address"
+                                    value={newMusher.email}
+                                    onChange={(e) => setNewMusher({...newMusher, email: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-[1.1vw] font-[600] mb-2">Date of Birth</label>
+                                <input
+                                    type="date"
+                                    className="w-full p-3 border rounded-lg text-base"
+                                    value={newMusher.dateOfBirth}
+                                    onChange={(e) => setNewMusher({...newMusher, dateOfBirth: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[1.1vw] font-[600] mb-2">Guardian (if junior)</label>
+                                <input
+                                    type="text"
+                                    className="w-full p-3 border rounded-lg text-base"
+                                    placeholder="Full name and contact"
+                                    value={newMusher.guardianDetails}
+                                    onChange={(e) => setNewMusher({...newMusher, guardianDetails: e.target.value})}
                                 />
                             </div>
                         </div>
@@ -949,21 +981,9 @@ const ManageClubMusher = () => {
                                         setIsEditing(false);
                                         setEditingMusherId("");
                                         setValidationErrors({});
-                                        setInitialMusherState({
-                                            name: "",
-                                            registrationNo: "",
-                                            kennelRegistrationNo: "",
-                                            associatedDogs: [{
-                                                name: "",
-                                                pedigreeName: "",
-                                                nzkcNo: "",
-                                                nzfssNo: "",
-                                                dob: "",
-                                                breed: "",
-                                                deceased: false
-                                            }],
-                                            showProfileConsent: false
-                                        });
+                                        const emptyMusher = createEmptyMusher();
+                                        setNewMusher(emptyMusher);
+                                        setInitialMusherState(emptyMusher);
                                     }}
                                 >
                                     <div className="text-[0.95vw] font-[500]">+ Add Musher</div>        
@@ -1042,6 +1062,11 @@ const ManageClubMusher = () => {
                                         name: musher.name || "",
                                         registrationNo: musher.registrationNo || "",
                                         kennelRegistrationNo: musher.kennelRegistrationNo || "",
+                                        address: musher.address || "",
+                                        phone: musher.phone || "",
+                                        email: musher.email || "",
+                                        dateOfBirth: musher.dateOfBirth || "",
+                                        guardianDetails: musher.guardianDetails || "",
                                         associatedDogs: Array.isArray(musher.dogs) ? musher.dogs.map((d: any) => ({
                                           name: d.name || "",
                                           pedigreeName: d.pedigreeName || "",
@@ -1142,7 +1167,60 @@ const ManageClubMusher = () => {
                             />
                         </div>
                     </div>
-                                        <div>
+                    <div>
+                        <label className="block text-[1.1vw] font-[600] mb-2">Address</label>
+                        <input
+                            type="text"
+                            className="w-full p-3 border rounded-lg text-base"
+                            placeholder="Enter address"
+                            value={newMusher.address}
+                            onChange={(e) => setNewMusher({...newMusher, address: e.target.value})}
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-[1.1vw] font-[600] mb-2">Phone</label>
+                            <input
+                                type="tel"
+                                className="w-full p-3 border rounded-lg text-base"
+                                placeholder="Enter phone number"
+                                value={newMusher.phone}
+                                onChange={(e) => setNewMusher({...newMusher, phone: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[1.1vw] font-[600] mb-2">Email</label>
+                            <input
+                                type="email"
+                                className="w-full p-3 border rounded-lg text-base"
+                                placeholder="Enter email address"
+                                value={newMusher.email}
+                                onChange={(e) => setNewMusher({...newMusher, email: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-[1.1vw] font-[600] mb-2">Date of Birth</label>
+                            <input
+                                type="date"
+                                className="w-full p-3 border rounded-lg text-base"
+                                value={newMusher.dateOfBirth}
+                                onChange={(e) => setNewMusher({...newMusher, dateOfBirth: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[1.1vw] font-[600] mb-2">Guardian (if junior)</label>
+                            <input
+                                type="text"
+                                className="w-full p-3 border rounded-lg text-base"
+                                placeholder="Full name and contact"
+                                value={newMusher.guardianDetails}
+                                onChange={(e) => setNewMusher({...newMusher, guardianDetails: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                    <div>
                         <label className="block text-[1.1vw] font-[600] mb-3">Associated Dogs</label>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm border border-[#CDCECE] rounded-lg table-fixed">

@@ -85,6 +85,12 @@ const APPROVE_FORM = gql`
       firstName
       surname
       applicantName
+      address
+      dateOfBirth
+      phone
+      email
+      guardianDetails
+      nzfssRegistrationNumber
       showProfileConsent
     }
   }
