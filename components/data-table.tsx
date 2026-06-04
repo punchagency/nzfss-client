@@ -62,6 +62,7 @@ const data: Dogs[] = [
 
 export type Dogs = {
   id?: string
+  dogId?: string
   name: string
   pedigreeName?: string // Add pedigree name field
   NZFSSRegistration: string

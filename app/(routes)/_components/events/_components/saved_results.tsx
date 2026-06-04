@@ -1021,7 +1021,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
             // Add to array with proper format
             dogPointsArray.push({
               NZFSSRegistration: dog.NZFSSRegistration.trim(),
-              points: finalPoints
+              points: finalPoints,
+              cutoffPoints: 0,
             });
           }
         }

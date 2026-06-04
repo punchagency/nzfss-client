@@ -7,6 +7,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { gql, useQuery, ApolloError, useMutation } from "@apollo/client";
+import { MUSHER_DOG_FIELDS } from "@/lib/graphql/musher";
 import { useState, useEffect } from "react";
 import { useUser } from "@/context/user_context";
 import { Filter, ChevronDown, X, Pencil, Trash2, ArrowUpDown } from 'lucide-react';
@@ -61,13 +62,7 @@ const GET_CLUB_MUSHERS = gql`
             dateOfBirth
             guardianDetails
             dogs {
-                name
-                pedigreeName
-                nzkcNo
-                nzfssNo
-                dateOfBirth
-                breed
-                deceased
+                ${MUSHER_DOG_FIELDS}
             }
         }
     }
@@ -90,13 +85,7 @@ const GET_MUSHERS = gql`
             dateOfBirth
             guardianDetails
             dogs {
-                name
-                pedigreeName
-                nzkcNo
-                nzfssNo
-                dateOfBirth
-                breed
-                deceased
+                ${MUSHER_DOG_FIELDS}
             }
         }
     }
@@ -106,6 +95,7 @@ const GET_MUSHERS = gql`
  * Interface defining the structure of a Dog
  */
 interface Dog {
+    dogId?: string;
     _id?: string;
     name: string;
     pedigreeName?: string;
@@ -185,13 +175,7 @@ const UPDATE_MUSHER = gql`
             dateOfBirth
             guardianDetails
             dogs {
-                name
-                pedigreeName
-                nzkcNo
-                nzfssNo
-                dateOfBirth
-                breed
-                deceased
+                ${MUSHER_DOG_FIELDS}
             }
             createdAt
             updatedAt
@@ -362,6 +346,8 @@ export default function ClubMushers() {
             dateOfBirth: musher.dateOfBirth || '',
             guardianDetails: musher.guardianDetails || '',
             dogs: musher.dogs.map(dog => ({
+                dogId: dog.dogId || dog._id,
+                _id: dog.dogId || dog._id,
                 name: dog.name || '',
                 pedigreeName: dog.pedigreeName || '',
                 nzkcNo: dog.nzkcNo || '',
@@ -379,6 +365,8 @@ export default function ClubMushers() {
         try {
             // Clean up the dogs data by removing __typename and any undefined fields
             const cleanedDogs = formData.dogs.map(dog => ({
+                dogId: dog.dogId || dog._id || undefined,
+                _id: dog.dogId || dog._id || undefined,
                 name: dog.name,
                 pedigreeName: dog.pedigreeName || undefined,
                 nzkcNo: dog.nzkcNo || undefined,

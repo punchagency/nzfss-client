@@ -51,6 +51,7 @@ const GET_ALL_MUSHERS = gql`
       kennelRegistrationNo
       club
       dogs {
+        dogId
         _id
         name
         pedigreeName
@@ -133,6 +134,7 @@ interface Musher {
 }
 
 interface MusherDog {
+  dogId?: string;
   _id: string;
   name: string;
   pedigreeName: string;
@@ -858,8 +860,8 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
 
   // Add new function to handle dog selection from club musher's dogs
   const handleMusherDogSelect = (dog: MusherDog) => {
-    // Create a unique identifier using dog's original ID and musher name
-    const uniqueId = `${dog._id}-${selectedMusher?.name || ''}`;
+    const stableDogId = dog.dogId || dog._id;
+    const uniqueId = `${stableDogId}-${selectedMusher?.name || ''}`;
     
     // Check if dog is already selected using the unique identifier
     const isSelected = selectedRows.some(selected => 
@@ -874,7 +876,8 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
     } else {
       // Add dog to selection
       const formattedDog: Dogs = {
-        id: uniqueId, // Use the unique identifier
+        id: uniqueId,
+        dogId: stableDogId,
         name: dog.name || "",
         pedigreeName: dog.pedigreeName || "",
         NZFSSRegistration: cleanRegistrationNumber(dog.nzfssNo, dog.name) || "",
@@ -2598,9 +2601,10 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
           raceFormat: entrant.raceFormat,
           class: entrant.class,
           customClass: entrant.customClass,
-          associatedDog: entrant.dogs.map(dog => ({ // GraphQL expects 'associatedDog' not 'dogs'
+          associatedDog: entrant.dogs.map(dog => ({
+            dogId: dog.dogId || undefined,
             driverName: entrant.driver,
-            name: getDogDisplayName(dog), // Use pedigree name when available, fallback to regular name
+            name: getDogDisplayName(dog),
             NZFSSRegistration: dog.NZFSSRegistration,
             dob: dog.dob,
             breed: dog.breed

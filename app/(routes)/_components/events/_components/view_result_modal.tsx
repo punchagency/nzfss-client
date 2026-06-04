@@ -9,6 +9,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { X } from "lucide-react";
+import { MusherResultRows } from "@/app/(routes)/result/_components/musher-result-rows";
+import { computeMusherRanks, musherKey } from "@/lib/race-result-grouping";
 import { useRouter } from "next/navigation";
 import { LogHistoryModal } from "./log_history_modal";
 import { Label } from "@/components/ui/label";
@@ -2374,61 +2376,73 @@ console.log("editedDrivers", editedDrivers);
                                   </thead>
                                   <tbody>
                                     {Array.isArray(results)
-                                      ? results
-                                          .filter(
+                                      ? (() => {
+                                          const classDrivers = results.filter(
                                             (r) =>
                                               r.class === result.class &&
                                               (r.customClass || "") ===
                                                 (result.customClass || "")
-                                          )
-                                          .map((driver, idx) => (
-                                            <tr key={idx}>
-                                              <td className="py-2">
-                                                {driver.name}
-                                              </td>
-                                              <td className="py-2">
-                                                {Array.isArray(driver.associatedDog)
-                                                  ? driver.associatedDog.map((dog) => dog.name).join(", ")
-                                                  : "N/A"}
-                                              </td>
-                                              <td className="py-2">
-                                                {result.class?.toLowerCase() === "weight pull" ? (
-                                                  <div className="text-sm space-y-1">
-                                                    <div className="font-medium text-purple-600">
-                                                      Race Time: {formatStartTime(driver.raceTime)}
-                                                    </div>
-                                                    <div className="text-xs text-gray-600">
-                                                      <div>Dog Weight: {driver.dogWeight || result.dogWeight || "N/A"} kg</div>
-                                                      <div>Weight Pulled: {driver.weightPulled || result.weightPulled || "N/A"} kg</div>
-                                                    </div>
-                                                  </div>
-                                                ) : (
-                                                  formatStartTime(driver.raceTime)
-                                                )}
-                                              </td>
-                                              <td className="py-2">
-                                                <span
-                                                  className={`px-2 py-1 rounded-full text-xs ${
-                                                    driver.raceType === "started"
-                                                      ? "bg-green-100 text-green-800"
+                                          );
+                                          const ranks = computeMusherRanks(classDrivers);
+                                          const classKey = `${result.class}-${result.customClass || ""}`;
+                                          const rows = classDrivers.map((driver) => ({
+                                            _id: driver._id,
+                                            musherRank: ranks.get(musherKey(driver.name)) ?? 0,
+                                            points: 0,
+                                            dogPoints: [] as { NZFSSRegistration: string; points: number }[],
+                                            entrant: {
+                                              name: driver.name,
+                                              raceTime: driver.raceTime,
+                                              heat: driver.heat,
+                                              raceType: driver.raceType,
+                                              class: driver.class,
+                                              customClass: driver.customClass || "",
+                                              dogWeight: driver.dogWeight,
+                                              weightPulled: driver.weightPulled,
+                                              associatedDog: Array.isArray(driver.associatedDog)
+                                                ? driver.associatedDog.map((dog) => ({
+                                                    name: dog.name,
+                                                    NZFSSRegistration: dog.NZFSSRegistration || "",
+                                                  }))
+                                                : [],
+                                            },
+                                          }));
+
+                                          return (
+                                            <MusherResultRows
+                                              variant="admin"
+                                              classKey={classKey}
+                                              rows={rows}
+                                              renderStatus={(group) => {
+                                                const driver = classDrivers.find(
+                                                  (d) => d._id === group.heats[0]?.entrantId
+                                                );
+                                                if (!driver) return null;
+                                                return (
+                                                  <span
+                                                    className={`px-2 py-1 rounded-full text-xs ${
+                                                      driver.raceType === "started"
+                                                        ? "bg-green-100 text-green-800"
+                                                        : driver.raceType === "disqualified"
+                                                        ? "bg-red-100 text-red-800"
+                                                        : driver.raceType === "did not finish"
+                                                        ? "bg-orange-100 text-orange-800"
+                                                        : "bg-yellow-100 text-yellow-800"
+                                                    }`}
+                                                  >
+                                                    {driver.raceType === "started"
+                                                      ? "Started"
                                                       : driver.raceType === "disqualified"
-                                                      ? "bg-red-100 text-red-800"
+                                                      ? "Disqualified"
                                                       : driver.raceType === "did not finish"
-                                                      ? "bg-orange-100 text-orange-800"
-                                                      : "bg-yellow-100 text-yellow-800"
-                                                  }`}
-                                                >
-                                                  {driver.raceType === "started"
-                                                    ? "Started"
-                                                    : driver.raceType === "disqualified"
-                                                    ? "Disqualified"
-                                                    : driver.raceType === "did not finish"
-                                                    ? "Did not finish"
-                                                    : "Did not start"}
-                                                </span>
-                                              </td>
-                                            </tr>
-                                          ))
+                                                      ? "Did not finish"
+                                                      : "Did not start"}
+                                                  </span>
+                                                );
+                                              }}
+                                            />
+                                          );
+                                        })()
                                       : null}
                                   </tbody>
                                 </table>

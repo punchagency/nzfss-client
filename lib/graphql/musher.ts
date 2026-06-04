@@ -8,6 +8,19 @@ const MUSHER_CONTACT_FIELDS = `
   guardianDetails
 `;
 
+/** Include on every dogs { } selection so dogId is always loaded and saved */
+export const MUSHER_DOG_FIELDS = `
+  dogId
+  _id
+  name
+  pedigreeName
+  nzkcNo
+  nzfssNo
+  dateOfBirth
+  breed
+  deceased
+`;
+
 export const GET_MUSHERS = gql`
   query GetMushers {
     getMushers {
@@ -17,13 +30,7 @@ export const GET_MUSHERS = gql`
       kennelRegistrationNo
       ${MUSHER_CONTACT_FIELDS}
       dogs {
-        name
-        pedigreeName
-        nzkcNo
-        nzfssNo
-        dateOfBirth
-        breed
-        deceased
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
       updatedAt
@@ -41,13 +48,7 @@ export const GET_MUSHER_BY_ID = gql`
       clubId
       ${MUSHER_CONTACT_FIELDS}
       dogs {
-        name
-        pedigreeName
-        nzkcNo
-        nzfssNo
-        dateOfBirth
-        breed
-        deceased
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
       updatedAt
@@ -65,6 +66,8 @@ export const CREATE_MUSHER = gql`
       showProfileConsent
       ${MUSHER_CONTACT_FIELDS}
       dogs {
+        dogId
+        _id
         name
         pedigreeName
         nzkcNo
@@ -89,6 +92,8 @@ export const UPDATE_MUSHER = gql`
       showProfileConsent
       ${MUSHER_CONTACT_FIELDS}
       dogs {
+        dogId
+        _id
         name
         pedigreeName
         nzkcNo

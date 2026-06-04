@@ -7,16 +7,47 @@ import Header from '@/app/(homepage)/_components/header';
 import Footer from '@/app/(homepage)/_components/footer';
 import Inquires from '@/app/(homepage)/_components/inquires';
 import Spinner from '@/app/_components/Spinner';
+import { MusherResultRows } from '@/app/(routes)/result/_components/musher-result-rows';
 
 const GET_EVENT_RESULTS = gql`
   query GetEventResults($eventId: String!) {
-    getAllPoints {
+    getEntrantsByEventId(eventId: $eventId) {
+      _id
+      name
+      eventId
+      raceFormat
+      class
+      customClass
+      associatedDog {
+        driverName
+        name
+        NZFSSRegistration
+        dob
+        breed
+      }
+      raceType
+      raceTime
+      temperature
+      distance
+      heat
+      dogWeight
+      weightPulled
+      heatsData {
+        heat
+        temperature
+        distance
+        class
+      }
+    }
+
+    getPointsByEventId(eventId: $eventId) {
       _id
       entrantId
       points
       dogPoints {
         NZFSSRegistration
         points
+        cutoffPoints
       }
       heatsData {
         heat
@@ -24,48 +55,8 @@ const GET_EVENT_RESULTS = gql`
         distance
         class
       }
-      createdAt
-      updatedAt
-      entrant {
-        _id
-        name
-        eventId
-        raceFormat
-        class
-        customClass
-        associatedDog {
-          driverName
-          name
-          NZFSSRegistration
-          dob
-          breed
-        }
-        raceType
-        raceTime
-        temperature
-        distance
-        dogWeight
-        weightPulled
-      }
     }
 
-    getMushers {
-      id
-      name
-      registrationNo
-      kennelRegistrationNo
-      club
-      dogs {
-        _id
-        name
-        pedigreeName
-        nzkcNo
-        nzfssNo
-        dateOfBirth
-        breed
-        deceased
-      }
-    }
     findEventCalendarById(input: { _id: $eventId }) {
       _id
       eventName
@@ -86,28 +77,6 @@ interface Dog {
   breed: string;
 }
 
-interface MusherDog {
-  _id: string;
-  name: string;
-  pedigreeName?: string;
-  nzkcNo?: string;
-  nzfssNo?: string;
-  dateOfBirth?: string;
-  breed?: string;
-  deceased: boolean;
-}
-
-interface Musher {
-  id: string;
-  name: string;
-  registrationNo: string;
-  kennelRegistrationNo: string;
-  club: string;
-  dogs: MusherDog[];
-}
-
-
-
 interface HeatData {
   heat: string;
   temperature: string;
@@ -127,25 +96,25 @@ interface Entrant {
   raceTime: string;
   temperature?: string;
   distance?: string;
+  heat?: string;
   heatsData?: HeatData[];
   dogWeight?: string;
   weightPulled?: string;
 }
 
+interface DisplayResultRow {
+  _id: string;
+  entrant: Entrant;
+  musherRank: number;
+  points: number;
+  dogPoints: DogPoint[];
+  heatsData?: HeatData[];
+}
+
 interface DogPoint {
   NZFSSRegistration: string;
   points: number;
-}
-
-interface Point {
-  _id: string;
-  entrantId: string;
-  points: number;
-  dogPoints: DogPoint[] | null;
-  heatsData?: HeatData[];
-  createdAt: string;
-  updatedAt: string;
-  entrant: Entrant;
+  cutoffPoints?: number;
 }
 
 interface Event {
@@ -162,21 +131,17 @@ interface Event {
 interface ClassResults {
   [key: string]: {
     title: string;
-    results: Point[];
+    results: DisplayResultRow[];
   };
 }
 
-// Helper function to get the display name for dogs (pedigree name if available, otherwise regular name)
-const getDogDisplayName = (dog: Dog, pedigreeMap: Map<string, string>): string => {
-  // Try to find pedigree name by NZFSSRegistration
-  const pedigreeName = pedigreeMap.get(dog.NZFSSRegistration);
-  if (pedigreeName && pedigreeName.trim() !== '') {
-    return pedigreeName;
-  }
-  
-  // Fall back to regular name
-  return dog.name || '';
-};
+import { computeMusherRanks, musherKey } from '@/lib/race-result-grouping';
+
+function normalizeClassKey(entrant: Entrant): string {
+  const cls = (entrant.class || '').trim().toLowerCase();
+  const custom = (entrant.customClass || '').trim().toLowerCase();
+  return `${cls}::${custom}`;
+}
 
 export default function EventResultPage({ params }: { params: { eventId: string } }) {
   const eventId = params.eventId;
@@ -184,8 +149,6 @@ export default function EventResultPage({ params }: { params: { eventId: string 
   const [eventDetails, setEventDetails] = useState<Event | null>(null);
   const [classResults, setClassResults] = useState<ClassResults>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pedigreeMap, setPedigreeMap] = useState<Map<string, string>>(new Map());
-  
   const { loading, error, data } = useQuery(GET_EVENT_RESULTS, {
     variables: { eventId },
     fetchPolicy: "cache-and-network", // Ensure fresh data
@@ -199,20 +162,6 @@ export default function EventResultPage({ params }: { params: { eventId: string 
   useEffect(() => {
     if (data) {
       console.log('Raw data from query:', data);
-      
-      // Debug the getAllPoints data specifically
-      if (data.getAllPoints) {
-        console.log('Total getAllPoints count:', data.getAllPoints.length);
-        console.log('Sample point (first):', data.getAllPoints[0]);
-        console.log('Sample point heatsData (first):', data.getAllPoints[0]?.heatsData);
-        
-        // Check if ANY point has heatsData
-        const pointsWithHeats = data.getAllPoints.filter((point: Point) => point.heatsData && point.heatsData.length > 0);
-        console.log('Points with heatsData:', pointsWithHeats.length);
-        if (pointsWithHeats.length > 0) {
-          console.log('First point with heatsData:', pointsWithHeats[0]);
-        }
-      }
       
       // Set event details
       if (data.findEventCalendarById) {
@@ -241,66 +190,54 @@ export default function EventResultPage({ params }: { params: { eventId: string 
         });
       }
       
-      // Create pedigree name lookup map from musher data
-      const newPedigreeMap = new Map<string, string>();
-      if (data.getMushers) {
-        data.getMushers.forEach((musher: Musher) => {
-          musher.dogs.forEach((dog: MusherDog) => {
-            if (dog.nzfssNo && dog.pedigreeName && dog.pedigreeName.trim() !== '') {
-              newPedigreeMap.set(dog.nzfssNo, dog.pedigreeName);
-            }
-          });
-        });
-      }
-      setPedigreeMap(newPedigreeMap);
+      // Same source as admin View Result: entrants per heat row
+      if (data.getEntrantsByEventId?.length) {
+        const entrants = data.getEntrantsByEventId as Entrant[];
+        const pointsByEntrantId = new Map<
+          string,
+          { points: number; dogPoints: DogPoint[]; heatsData?: HeatData[] }
+        >();
 
-      // Process points data
-      if (data.getAllPoints) {
-        const pointsForEvent = data.getAllPoints.filter(
-          (point: Point) => point.entrant && point.entrant.eventId === eventId
-        );
-        
-        console.log('Filtered points for event:', pointsForEvent);
-        console.log('First point heatsData:', pointsForEvent[0]?.heatsData);
-        console.log('First point entrant:', pointsForEvent[0]?.entrant);
-        
-        // Debug heatsData for all points
-        pointsForEvent.forEach((point: Point, index: number) => {
-          console.log(`Point ${index} heatsData:`, point.heatsData);
-          console.log(`Point ${index} heatsData length:`, point.heatsData?.length);
-        });
-        
-        // Group results by class
-        const resultsByClass: ClassResults = {};
-        
-        pointsForEvent.forEach((point: Point) => {
-          console.log('Processing point:', {
-            id: point._id,
+        for (const point of data.getPointsByEventId || []) {
+          pointsByEntrantId.set(point.entrantId, {
+            points: point.points ?? 0,
+            dogPoints: point.dogPoints || [],
             heatsData: point.heatsData,
-            entrant: point.entrant,
-            points: point.points
           });
-          
-          const classKey = `${point.entrant.class}-${point.entrant.customClass}`;
-          if (!resultsByClass[classKey]) {
-            resultsByClass[classKey] = {
-              title: `${point.entrant.class} - ${point.entrant.customClass}`,
-              results: []
+        }
+
+        const resultsByClass: ClassResults = {};
+        const entrantsByClass = new Map<string, Entrant[]>();
+
+        for (const entrant of entrants) {
+          const classKey = normalizeClassKey(entrant);
+          if (!entrantsByClass.has(classKey)) entrantsByClass.set(classKey, []);
+          entrantsByClass.get(classKey)!.push(entrant);
+        }
+
+        for (const [classKey, classEntrants] of entrantsByClass) {
+          const musherRanks = computeMusherRanks(classEntrants);
+          const sample = classEntrants[0];
+          const customLabel = sample.customClass?.trim();
+
+          const rows: DisplayResultRow[] = classEntrants.map((entrant) => {
+            const scored = pointsByEntrantId.get(entrant._id);
+            return {
+              _id: entrant._id,
+              entrant,
+              musherRank: musherRanks.get(musherKey(entrant.name)) ?? 0,
+              points: scored?.points ?? 0,
+              dogPoints: scored?.dogPoints ?? [],
+              heatsData: scored?.heatsData ?? entrant.heatsData,
             };
-          }
-          resultsByClass[classKey].results.push(point);
-        });
-        
-        // Sort each class results by points (descending)
-        Object.keys(resultsByClass).forEach(classKey => {
-          resultsByClass[classKey].results.sort((a, b) => b.points - a.points);
-          console.log(`Class ${classKey} first result:`, {
-            heatsData: resultsByClass[classKey].results[0]?.heatsData,
-            entrant: resultsByClass[classKey].results[0]?.entrant
           });
-        });
-        
-        console.log('Processed results by class:', resultsByClass);
+
+          resultsByClass[classKey] = {
+            title: customLabel ? `${sample.class} - ${customLabel}` : sample.class,
+            results: rows,
+          };
+        }
+
         setClassResults(resultsByClass);
       }
     }
@@ -538,72 +475,7 @@ export default function EventResultPage({ params }: { params: { eventId: string 
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {data.results.map((point, index) => {
-                        const isWeightpull = point.entrant && (
-                          point.entrant.raceType === 'weightpull' ||
-                          point.entrant.class?.toLowerCase().includes('weight') ||
-                          point.entrant.class?.toLowerCase().includes('pull') ||
-                          point.entrant.customClass?.toLowerCase().includes('weight') ||
-                          point.entrant.customClass?.toLowerCase().includes('pull')
-                        );
-                        return (
-                          <tr key={point._id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{index + 1}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{point.entrant.name}</td>
-                            <td className="px-6 py-4 text-sm text-gray-900">
-                              {point.entrant.associatedDog.map(dog => getDogDisplayName(dog, pedigreeMap)).join(', ')}
-                            </td>
-                            {isWeightpull ? (
-                              <>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                                  {point.entrant.dogWeight ? `${point.entrant.dogWeight} kg` : 'N/A'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                                  {point.entrant.weightPulled ? `${point.entrant.weightPulled} kg` : 'N/A'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{point.entrant.raceTime || 'N/A'}</td>
-                                <td className="px-6 py-4 text-sm text-gray-900">
-                                  <div className="space-y-1">
-                                    {point.entrant.associatedDog.map((dog, i) => {
-                                      const dogPoint = point.dogPoints?.find(dp => 
-                                        dp.NZFSSRegistration === dog.NZFSSRegistration
-                                      );
-                                      return (
-                                        <div key={i} className="flex items-center gap-2">
-                                          <span className="font-medium text-gray-900">
-                                            {dogPoint ? dogPoint.points : '0'}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{point.entrant.raceTime || 'N/A'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{point.points}</td>
-                                <td className="px-6 py-4 text-sm text-gray-900">
-                                  <div className="space-y-1">
-                                    {point.entrant.associatedDog.map((dog, i) => {
-                                      const dogPoint = point.dogPoints?.find(dp => 
-                                        dp.NZFSSRegistration === dog.NZFSSRegistration
-                                      );
-                                      return (
-                                        <div key={i} className="flex items-center gap-2">
-                                          <span className="font-medium text-gray-900">
-                                            {dogPoint ? dogPoint.points : '0'}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </td>
-                              </>
-                            )}
-                          </tr>
-                        );
-                      })}
+                      <MusherResultRows rows={data.results} classKey={classKey} />
                     </tbody>
                   </table>
                 </div>
@@ -616,4 +488,4 @@ export default function EventResultPage({ params }: { params: { eventId: string 
       <Footer />
     </div>
   );
-} 
+}
