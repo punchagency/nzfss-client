@@ -9,6 +9,7 @@ export const CREATE_RESULT = gql`
       class
       customClass
       associatedDog {
+        dogId
         driverName
         name
         NZFSSRegistration
@@ -43,6 +44,7 @@ export const UPDATE_ADD_RESULT = gql`
       customClass
       name
       associatedDog {
+        dogId
         driverName
         name
         NZFSSRegistration
@@ -76,6 +78,7 @@ export const UPDATE_ENTRANT = gql`
       class
       customClass
       associatedDog {
+        dogId
         driverName
         name
         NZFSSRegistration
@@ -109,6 +112,7 @@ export const CREATE_ENTRANT = gql`
       class
       customClass
       associatedDog {
+        dogId
         driverName
         name
         NZFSSRegistration

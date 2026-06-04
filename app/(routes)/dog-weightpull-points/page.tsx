@@ -26,6 +26,7 @@ interface DogWeightpullPoint {
 
 interface WprPoint {
   _id: string;
+  dogId?: string | null;
   wprFlag?: string | null;
   wprReg?: string | null;
   wprPedigreeName?: string | null;
@@ -162,7 +163,7 @@ const DogWeightpullPointsPage = () => {
     // Then, merge in WPR points collection data
     wprData.forEach(wprPoint => {
       // Use wprReg if available, then wprFlag, otherwise use pedigree name as identifier
-      const identifier = wprPoint.wprReg || wprPoint.wprFlag || wprPoint.wprPedigreeName || `wpr_${wprPoint._id}`;
+      const identifier = wprPoint.dogId || wprPoint.wprReg || wprPoint.wprFlag || `wpr_${wprPoint._id}`;
       
       if (!identifier) return; // Skip if we can't identify the record
       

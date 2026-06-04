@@ -8,7 +8,7 @@ import { Pencil, Trash2, ArrowUpDown } from 'lucide-react';
 import { useState, Dispatch, SetStateAction, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { gql, useMutation, useQuery } from "@apollo/client";
-import {  CREATE_MUSHER, UPDATE_MUSHER, DELETE_MUSHER } from "@/lib/graphql/musher";
+import { CREATE_MUSHER, UPDATE_MUSHER, DELETE_MUSHER, MUSHER_DOG_FIELDS } from "@/lib/graphql/musher";
 import * as yup from 'yup';
 import Warning from "@/components/warning";
 import { useSearch } from "@/app/context/SearchContext";
@@ -68,6 +68,8 @@ const Modal: React.FC<ModalProps> = ({
 };
 
 interface Dog {
+  dogId?: string;
+  _id?: string;
   name: string;
   pedigreeName: string;
   nzkcNo: string;
@@ -131,6 +133,8 @@ const GET_CLUB_MUSHERS_SAFE = gql`
       dateOfBirth
       guardianDetails
       dogs {
+        dogId
+        _id
         name
         pedigreeName
         nzkcNo
@@ -426,6 +430,8 @@ const ManageClubMusher = () => {
                 clubId: user?._id,
                 showProfileConsent: newMusher.showProfileConsent,
                 dogs: newMusher.associatedDogs.map(dog => ({
+                    dogId: dog.dogId || dog._id || undefined,
+                    _id: dog.dogId || dog._id || undefined,
                     name: dog.name ? dog.name.trim() : "",
                     pedigreeName: dog.pedigreeName || "",
                     nzkcNo: dog.nzkcNo || "",
@@ -1068,6 +1074,8 @@ const ManageClubMusher = () => {
                                         dateOfBirth: musher.dateOfBirth || "",
                                         guardianDetails: musher.guardianDetails || "",
                                         associatedDogs: Array.isArray(musher.dogs) ? musher.dogs.map((d: any) => ({
+                                          dogId: d.dogId || d._id,
+                                          _id: d.dogId || d._id,
                                           name: d.name || "",
                                           pedigreeName: d.pedigreeName || "",
                                           nzkcNo: d.nzkcNo || "",

@@ -1,17 +1,16 @@
-import { gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { MUSHER_DOG_FIELDS } from "@/lib/graphql/musher";
 
 export const CREATE_MUSHER = gql`
   mutation CreateMusher($input: CreateMusherInput!) {
     createMusher(input: $input) {
-      _id
+      id
       name
-      email
-      phone
+      registrationNo
+      kennelRegistrationNo
+      club
       dogs {
-        name
-        breed
-        dateOfBirth
-        nzfssRegistration
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
     }
@@ -20,16 +19,12 @@ export const CREATE_MUSHER = gql`
 
 export const GET_ALL_MUSHERS = gql`
   query GetAllMushers {
-    getAllMushers {
-      _id
+    getMushers {
+      id
       name
-      email
-      phone
+      registrationNo
       dogs {
-        name
-        breed
-        dateOfBirth
-        nzfssRegistration
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
     }
@@ -37,26 +32,19 @@ export const GET_ALL_MUSHERS = gql`
 `;
 
 export const UPDATE_MUSHER = gql`
-  mutation UpdateMusher($musherId: String!, $input: UpdateMusherInput!) {
-    updateMusher(musherId: $musherId, input: $input) {
-      _id
+  mutation UpdateMusher($id: ID!, $input: UpdateMusherInput!) {
+    updateMusher(id: $id, input: $input) {
+      id
       name
-      email
-      phone
       dogs {
-        name
-        breed
-        dateOfBirth
-        nzfssRegistration
+        ${MUSHER_DOG_FIELDS}
       }
     }
   }
 `;
 
 export const DELETE_MUSHER = gql`
-  mutation DeleteMusher($musherId: String!) {
-    deleteMusher(musherId: $musherId) {
-      _id
-    }
+  mutation DeleteMusher($id: ID!) {
+    deleteMusher(id: $id)
   }
-`; 
+`;

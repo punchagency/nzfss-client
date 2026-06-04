@@ -1,16 +1,13 @@
 import { gql } from "@apollo/client";
+import { MUSHER_DOG_FIELDS } from "@/lib/graphql/musher";
 
-export const GET_MUSHERS = gql`
-  query GetMushers {
-    getMushers {
-      id
+export const GET_MUSHER = gql`
+  query GetMusher($input: FindUserByIdInput!) {
+    findUserById(input: $input) {
+      _id
       name
-      club
       dogs {
-        name
-        breed
-        dateOfBirth
-        nzfssNo
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
     }
@@ -23,12 +20,9 @@ export const GET_MUSHER_BY_ID = gql`
       _id
       name
       dogs {
-        name
-        breed
-        dateOfBirth
-        nzfssRegistration
+        ${MUSHER_DOG_FIELDS}
       }
       createdAt
     }
   }
-`; 
+`;
