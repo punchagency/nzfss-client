@@ -6,7 +6,7 @@ export interface HeatRun {
 }
 
 export interface MusherResultGroup {
-  key: string;
+  groupKey: string;
   name: string;
   musherRank: number;
   totalTime: string;
@@ -161,7 +161,7 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
     });
 
     return {
-      key: musherKey(g.name),
+      groupKey: musherKey(g.name),
       name: g.name,
       musherRank: g.musherRank,
       totalTime: secondsToRaceTime(g.totalSeconds) || g.heats[0]?.raceTime || '—',

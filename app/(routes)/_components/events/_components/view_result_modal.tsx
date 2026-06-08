@@ -28,7 +28,7 @@ import {
   UPDATE_ENTRANT,
 } from "@/graphql/mutation/addResult";
 import { useToast } from "@/hooks/use-toast";
-import { GET_MUSHERS } from "@/graphql/query/musher";
+import { GET_MUSHERS } from "@/lib/graphql/musher";
 import { GET_ALL_RESULTS } from "@/graphql/query/addResult";
 import { v4 as uuidv4 } from 'uuid';
 
