@@ -142,12 +142,29 @@ export const GET_DOG_WEIGHTPULL_POINTS = gql`
 
 export const GET_DOG_RACE_POINTS = gql`
   query GetDogRacePoints {
+    getDogRacePointSummaries {
+      name
+      regNumber
+      breed
+      pointsWithinCutoff
+      pointsOutsideCutoff
+      events
+      avgCutoffSeconds
+      awards
+    }
+  }
+`;
+
+/** @deprecated Use GET_DOG_RACE_POINTS (server-aggregated summaries) instead */
+export const GET_DOG_RACE_POINTS_LEGACY = gql`
+  query GetDogRacePointsLegacy {
     getAllPoints {
       _id
       entrantId
       points
       cutoffTime
       dogPoints {
+        dogId
         NZFSSRegistration
         points
       }
@@ -160,6 +177,7 @@ export const GET_DOG_RACE_POINTS = gql`
         class
         customClass
         associatedDog {
+          dogId
           driverName
           name
           NZFSSRegistration
@@ -173,6 +191,7 @@ export const GET_DOG_RACE_POINTS = gql`
     }
     getAllRcrPoints {
       _id
+      dogId
       rcrFlag
       rcrReg
       rcrPedigreeName
