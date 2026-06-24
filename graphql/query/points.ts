@@ -149,7 +149,7 @@ export const GET_DOG_RACE_POINTS = gql`
       pointsWithinCutoff
       pointsOutsideCutoff
       events
-      avgCutoffSeconds
+      cutoffPoints
       awards
     }
   }

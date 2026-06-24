@@ -13,7 +13,7 @@ interface DogRacePointSummary {
   pointsWithinCutoff: number;
   pointsOutsideCutoff: number;
   events: number;
-  avgCutoffSeconds?: number | null;
+  cutoffPoints: number;
   awards: string;
 }
 
@@ -23,7 +23,7 @@ interface Dog {
   breed: string;
   totalPoints: number;
   events: number;
-  cutoff: number | null;
+  cutoffPoints: number;
   awards: string;
 }
 
@@ -45,29 +45,6 @@ function formatPoints(value: number): string {
   return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(1);
 }
 
-function formatSecondsToTime(totalSeconds: number): string {
-  if (!totalSeconds || totalSeconds <= 0) return '0';
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-
-  if (hours > 0) {
-    if (seconds === 0 && minutes === 0) {
-      return `${hours}`;
-    }
-    if (seconds === 0) {
-      return `${hours}.${minutes.toString().padStart(2, '0')}`;
-    }
-    return `${hours}.${minutes.toString().padStart(2, '0')}.${seconds.toString().padStart(2, '0')}`;
-  }
-
-  if (seconds === 0) {
-    return `${minutes}`;
-  }
-  return `${minutes}.${seconds.toString().padStart(2, '0')}`;
-}
-
 function mapSummaryToDog(summary: DogRacePointSummary): Dog {
   return {
     name: summary.name,
@@ -75,7 +52,7 @@ function mapSummaryToDog(summary: DogRacePointSummary): Dog {
     breed: summary.breed,
     totalPoints: summary.pointsWithinCutoff + summary.pointsOutsideCutoff,
     events: summary.events,
-    cutoff: summary.avgCutoffSeconds ?? null,
+    cutoffPoints: summary.cutoffPoints,
     awards: summary.awards,
   };
 }
@@ -206,7 +183,7 @@ const DogRacePointPage = () => {
                       <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Breed</th>
                       <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Points</th>
                       <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Events</th>
-                      <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Cutoff</th>
+                      <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Cutoff Points</th>
                       <th className="px-4 py-2 text-left text-[1.146vw] font-[700] border-b">Awards</th>
                     </tr>
                   </thead>
@@ -218,9 +195,7 @@ const DogRacePointPage = () => {
                         <td className="px-4 py-2 text-[0.938vw]">{dog.breed || 'N/A'}</td>
                         <td className="px-4 py-2 text-[0.938vw]">{formatPoints(dog.totalPoints)}</td>
                         <td className="px-4 py-2 text-[0.938vw]">{dog.events}</td>
-                        <td className="px-4 py-2 text-[0.938vw]">
-                          {dog.cutoff !== null && dog.cutoff > 0 ? formatSecondsToTime(dog.cutoff) : '0'}
-                        </td>
+                        <td className="px-4 py-2 text-[0.938vw]">{dog.cutoffPoints}</td>
                         <td className="px-4 py-2 text-[0.938vw]">{dog.awards || 'N/A'}</td>
                       </tr>
                     ))}

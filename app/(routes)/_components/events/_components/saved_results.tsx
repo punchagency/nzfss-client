@@ -994,8 +994,18 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
           points = 0;
         }
 
+        // Calculate cutoff points: 1 if finished outside cutoff, 0 if within
+        let cutoffPoints = 0;
+        if (cutoffTime && entrant.raceTime) {
+          const cutoffSeconds = timeToSeconds(cutoffTime);
+          const raceSeconds = timeToSeconds(entrant.raceTime);
+          if (raceSeconds > cutoffSeconds) {
+            cutoffPoints = 1;
+          }
+        }
+
         // Validate and convert dog points to array format
-        const dogPointsArray: Array<{ NZFSSRegistration: string; points: number }> = [];
+        const dogPointsArray: Array<{ NZFSSRegistration: string; points: number; cutoffPoints: number }> = [];
         
         if (entrant.associatedDog && Array.isArray(entrant.associatedDog)) {
           for (const dog of entrant.associatedDog) {
@@ -1022,7 +1032,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
             dogPointsArray.push({
               NZFSSRegistration: dog.NZFSSRegistration.trim(),
               points: finalPoints,
-              cutoffPoints: 0,
+              cutoffPoints,
             });
           }
         }
