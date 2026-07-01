@@ -198,4 +198,46 @@ export const downloadExcel = async (excelUrl: string, fileName?: string): Promis
  */
 export const downloadWord = async (wordUrl: string, fileName?: string): Promise<void> => {
   return downloadFile(wordUrl, fileName, { fallbackName: 'document.docx' });
+};
+
+/**
+ * Generate and download a plain-text file from in-memory string content.
+ * Used for client-side exports (e.g. tab-delimited title-change lists).
+ */
+export const downloadTextFile = (
+  content: string,
+  fileName: string,
+  mimeType: string = 'text/plain;charset=utf-8'
+): void => {
+  try {
+    const blob = new Blob([content], { type: mimeType });
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error('Error generating text file download:', error);
+  }
+};
+
+/**
+ * Build a tab-delimited (TSV) document with a header row. Tabs/newlines inside
+ * values are stripped so the column layout stays intact (ASCII-friendly).
+ */
+export const buildTabDelimited = (
+  headers: string[],
+  rows: Array<Array<string | number | null | undefined>>
+): string => {
+  const sanitize = (value: string | number | null | undefined): string =>
+    String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+
+  const lines = [headers.map(sanitize).join('\t')];
+  for (const row of rows) {
+    lines.push(row.map(sanitize).join('\t'));
+  }
+  return lines.join('\r\n');
 }; 

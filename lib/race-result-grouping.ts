@@ -6,7 +6,7 @@ export interface HeatRun {
 }
 
 export interface MusherResultGroup {
-  key: string;
+  groupKey: string;
   name: string;
   musherRank: number;
   totalTime: string;
@@ -161,7 +161,7 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
     });
 
     return {
-      key: musherKey(g.name),
+      groupKey: musherKey(g.name),
       name: g.name,
       musherRank: g.musherRank,
       totalTime: secondsToRaceTime(g.totalSeconds) || g.heats[0]?.raceTime || '—',
@@ -180,7 +180,9 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
   });
 
   return groups.sort((a, b) => {
-    if (a.musherRank !== b.musherRank) return a.musherRank - b.musherRank;
+    const rankA = a.musherRank > 0 ? a.musherRank : Number.MAX_SAFE_INTEGER;
+    const rankB = b.musherRank > 0 ? b.musherRank : Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
     return a.name.localeCompare(b.name);
   });
 }

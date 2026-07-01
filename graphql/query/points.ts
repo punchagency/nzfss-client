@@ -1,5 +1,17 @@
 import { gql } from "@apollo/client";
 
+export const GET_SAVED_RESULTS_POINTS = gql`
+  query GetSavedResultsPoints {
+    getAllPoints {
+      _id
+      entrantId
+      points
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
 export const GET_ALL_POINTS = gql`
   query GetAllPoints {
     getAllPoints {
@@ -142,12 +154,29 @@ export const GET_DOG_WEIGHTPULL_POINTS = gql`
 
 export const GET_DOG_RACE_POINTS = gql`
   query GetDogRacePoints {
+    getDogRacePointSummaries {
+      name
+      regNumber
+      breed
+      pointsWithinCutoff
+      pointsOutsideCutoff
+      events
+      cutoffPoints
+      awards
+    }
+  }
+`;
+
+/** @deprecated Use GET_DOG_RACE_POINTS (server-aggregated summaries) instead */
+export const GET_DOG_RACE_POINTS_LEGACY = gql`
+  query GetDogRacePointsLegacy {
     getAllPoints {
       _id
       entrantId
       points
       cutoffTime
       dogPoints {
+        dogId
         NZFSSRegistration
         points
       }
@@ -160,6 +189,7 @@ export const GET_DOG_RACE_POINTS = gql`
         class
         customClass
         associatedDog {
+          dogId
           driverName
           name
           NZFSSRegistration
@@ -173,6 +203,7 @@ export const GET_DOG_RACE_POINTS = gql`
     }
     getAllRcrPoints {
       _id
+      dogId
       rcrFlag
       rcrReg
       rcrPedigreeName

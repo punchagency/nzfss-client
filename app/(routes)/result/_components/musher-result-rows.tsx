@@ -65,7 +65,7 @@ export function MusherResultRows({
   }
 
   function expandKey(group: MusherResultGroup) {
-    return `${classKey}::${group.key}`;
+    return `${classKey}::${group.groupKey}`;
   }
 
   return (

@@ -51,6 +51,11 @@ const Sidebar = () => {
       id: "8",
       label: "Club Mushers",
       href: "/dashboard/club-mushers"
+    },
+    {
+      id: "9",
+      label: "Title Changes",
+      href: "/dashboard/title-changes"
     }
   ];
 
