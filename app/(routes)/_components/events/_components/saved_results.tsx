@@ -5,7 +5,7 @@ import { useQuery, useMutation } from "@apollo/client";
 import { GET_ALL_RESULTS } from "@/graphql/query/addResult";
 import { GET_ALL_EVENTS } from "@/graphql/query/event";
 import { GET_CURRENT_USER_CLUB_DETAILS } from "@/graphql/query/clubs";
-import { GET_ALL_POINTS } from "@/graphql/query/points";
+import { GET_SAVED_RESULTS_POINTS } from "@/graphql/query/points";
 import { Loading } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -191,7 +191,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     }
   });
 
-  const { loading: pointsLoading, error: pointsError, data: pointsData, refetch: refetchPoints } = useQuery(GET_ALL_POINTS, {
+  const { loading: pointsLoading, error: pointsError, data: pointsData, refetch: refetchPoints } = useQuery(GET_SAVED_RESULTS_POINTS, {
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
     onError: (error) => {

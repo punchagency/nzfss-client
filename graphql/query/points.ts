@@ -1,5 +1,17 @@
 import { gql } from "@apollo/client";
 
+export const GET_SAVED_RESULTS_POINTS = gql`
+  query GetSavedResultsPoints {
+    getAllPoints {
+      _id
+      entrantId
+      points
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
 export const GET_ALL_POINTS = gql`
   query GetAllPoints {
     getAllPoints {
