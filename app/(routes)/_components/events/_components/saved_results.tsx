@@ -588,13 +588,69 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     return totalSeconds;
   };
 
+  // Approved classes per race type, as described in the race regulations.
+  // Any class not in these lists is a custom class and must not earn points.
+  const approvedClassesByRaceType: Record<string, string[]> = {
+    speed: [
+      "bikejoring",
+      "canicross",
+      "single-dog scooter",
+      "two-dog scooter",
+      "3-dog rig",
+      "4-dog rig",
+      "6-dog rig",
+      "8-dog rig",
+    ],
+    freight: [
+      "single-dog scooter",
+      "two-dog scooter",
+      "3-dog rig",
+      "4-dog rig",
+      "6-dog rig",
+      "8-dog rig",
+      "open class rig",
+    ],
+    snow: [
+      "skijoring",
+      "2-dog rig",
+      "3-dog rig",
+      "4-dog rig",
+      "6-dog rig",
+      "8-dog rig",
+      "open class rig",
+    ],
+    "weight pull": [
+      "27kg (60 pound) class",
+      "36kg (80 pound) class",
+      "50kg (110 pounds) class",
+      "unlimited class",
+    ],
+  };
+
+  // Custom classes are outside the approved classes in the race regulations,
+  // so they must not have any points calculated.
+  const isCustomClassEntrant = (entrant: Entrant): boolean => {
+    const raceType = (entrant.class || "").trim().toLowerCase();
+    const className = (entrant.customClass || "").trim().toLowerCase();
+    if (!className) return false;
+    const approvedClasses = approvedClassesByRaceType[raceType];
+    // Unknown race type: keep existing behavior rather than guessing
+    if (!approvedClasses) return false;
+    return !approvedClasses.includes(className);
+  };
+
   // Modify the calculatePoints function to use Annual Musher System for musher points and Championship Harness Dog System for dog points
   const calculatePoints = (entrant: Entrant, allEntrantsInClass: Entrant[]): { 
     points: number; 
     cutoffTime: string; 
     dogPoints: Record<string, number>;
   } => {
-    
+    // Custom classes are outside the approved classes described in the race
+    // regulations, so no musher or dog points are calculated for them.
+    if (isCustomClassEntrant(entrant)) {
+      return { points: 0, cutoffTime: '', dogPoints: {} };
+    }
+
     const isWeightpullEvent = 
       entrant.raceType === 'weightpull' || 
       entrant.class?.toLowerCase().includes('weight') ||
@@ -819,7 +875,11 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     entrant: Entrant,
     allWeightpullEntrants: Entrant[] // All weightpull entrants across all classes
   ): { dogPoints: Record<string, number> } => {
-    
+    // No points for custom classes (outside the approved race regulation classes)
+    if (isCustomClassEntrant(entrant)) {
+      return { dogPoints: {} };
+    }
+
     const isWeightpullEvent = 
       entrant.raceType === 'weightpull' || 
       entrant.class?.toLowerCase().includes('weight') ||
