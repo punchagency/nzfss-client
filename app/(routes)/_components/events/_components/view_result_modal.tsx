@@ -304,6 +304,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     "Canicross",
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",
@@ -314,6 +315,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   const freight = [
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",
