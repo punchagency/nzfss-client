@@ -45,6 +45,7 @@ export const EditResultModal = ({ isOpen, onClose, entrant }: EditResultModalPro
     "Canicross",
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",
@@ -54,6 +55,7 @@ export const EditResultModal = ({ isOpen, onClose, entrant }: EditResultModalPro
   const freight = [
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",

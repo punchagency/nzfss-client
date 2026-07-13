@@ -429,6 +429,7 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
     "Canicross",
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",
@@ -439,6 +440,7 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
   const freight = [
     "Single-Dog Scooter",
     "Two-Dog Scooter",
+    "2-Dog Rig",
     "3-Dog Rig",
     "4-Dog Rig",
     "6-Dog Rig",

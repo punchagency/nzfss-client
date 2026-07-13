@@ -172,6 +172,64 @@ const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
   }
 };
 
+const approvedClassesByRaceType: Record<string, string[]> = {
+  speed: [
+    "bikejoring",
+    "canicross",
+    "single-dog scooter",
+    "two-dog scooter",
+    "3-dog rig",
+    "4-dog rig",
+    "6-dog rig",
+    "8-dog rig",
+  ],
+  freight: [
+    "single-dog scooter",
+    "two-dog scooter",
+    "3-dog rig",
+    "4-dog rig",
+    "6-dog rig",
+    "8-dog rig",
+    "open class rig",
+  ],
+  snow: [
+    "skijoring",
+    "2-dog rig",
+    "3-dog rig",
+    "4-dog rig",
+    "6-dog rig",
+    "8-dog rig",
+    "open class rig",
+  ],
+  "weight pull": [
+    "27kg (60 pound) class",
+    "36kg (80 pound) class",
+    "50kg (110 pounds) class",
+    "unlimited class",
+  ],
+};
+
+const isCustomClassEntrant = (entrant: any): boolean => {
+  const rawClass = (entrant.class || "").trim().toLowerCase();
+  let raceType = rawClass;
+  if (rawClass.includes('weight') || rawClass.includes('pull')) {
+    raceType = 'weight pull';
+  } else if (rawClass.includes('freight')) {
+    raceType = 'freight';
+  } else if (rawClass.includes('snow')) {
+    raceType = 'snow';
+  } else if (rawClass.includes('speed')) {
+    raceType = 'speed';
+  }
+
+  const className = (entrant.customClass || "").trim().toLowerCase();
+  if (!className) return false;
+
+  const approvedClasses = approvedClassesByRaceType[raceType];
+  if (!approvedClasses) return false;
+  return !approvedClasses.includes(className);
+};
+
 const MusherRankingPage = () => {
   const currentYear = new Date().getFullYear();
   const [season, setSeason] = useState(currentYear.toString());
@@ -199,6 +257,24 @@ const MusherRankingPage = () => {
 
       data.getAllPoints.forEach((point: Point) => {
         if (!point.entrant) return;
+
+        // Skip non-sanctioned / custom classes
+        if (isCustomClassEntrant(point.entrant)) return;
+
+        // Skip junior classes from earning ranking points
+        const isJuniorClass = 
+          point.entrant.class?.toLowerCase().includes('junior') ||
+          point.entrant.customClass?.toLowerCase().includes('junior');
+        if (isJuniorClass) return;
+
+        // Filter by points > 0
+        if (point.points <= 0) return;
+
+        // Filter by season/year if selected
+        if (season) {
+          const pointYear = point.createdAt ? new Date(point.createdAt).getFullYear().toString() : '';
+          if (pointYear && pointYear !== season) return;
+        }
         
         // Normalize the class key properly with better mapping
         const rawClass = (point.entrant.class?.toLowerCase() || '').trim();
@@ -296,12 +372,15 @@ const MusherRankingPage = () => {
           console.log('Classifying entry:', { rawClass, classKey, customClass: point.entrant.customClass, subClassKey });
         }
         
-        const name = point.entrant.associatedDog?.[0]?.driverName || 'Unknown';
+        // Use entrant name instead of dog's driverName, trimmed and cleaned
+        const name = (point.entrant.name || '').trim();
         const fullRegNumber = point.entrant.associatedDog?.[0]?.NZFSSRegistration || 'N/A';
         // Extract only the registration number part (first two segments before dog name)
         const regNumber = fullRegNumber === 'N/A' ? 'N/A' : 
           fullRegNumber.split('/').slice(0, 2).join('/') || fullRegNumber;
-        const groupKey = `${name}__${classKey}__${subClassKey}`;
+        
+        // Group case-insensitively to prevent duplicates
+        const groupKey = `${name.toLowerCase()}__${classKey}__${subClassKey}`;
         if (!grouped[groupKey]) {
           grouped[groupKey] = {
             name,
@@ -311,6 +390,11 @@ const MusherRankingPage = () => {
             points: [],
             entrant: point.entrant
           };
+        } else {
+          // Keep a valid registration number if one of the duplicates has it
+          if (grouped[groupKey].regNumber === 'N/A' && regNumber !== 'N/A') {
+            grouped[groupKey].regNumber = regNumber;
+          }
         }
         grouped[groupKey].points.push(point.points);
       });
@@ -362,7 +446,7 @@ const MusherRankingPage = () => {
       });
       setEventClasses(formattedClasses);
     }
-  }, [data, searchTerm, currentYear]);
+  }, [data, season]);
 
   // Update to auto-filter without a button
   useEffect(() => {
@@ -417,23 +501,45 @@ const MusherRankingPage = () => {
   }
 
   const getFilteredEventClasses = () => {
-    if (!isFiltered) return Object.entries(eventClasses);
+    const searchLower = searchTerm.toLowerCase().trim();
 
     const filtered = Object.entries(eventClasses).filter(([key, _]) => {
       if (!eventClass) return true;
       return key === eventClass;
     }).map(([key, classData]) => {
-      if (!subClass) return [key, classData];
+      // Map and filter subclasses
+      const filteredSubClasses: Partial<Record<SubClassKey, SubClass>> = {};
       
-      // Filter subclasses if a specific subclass is selected
-      const filteredSubClasses = Object.fromEntries(
-        Object.entries(classData.subClasses).filter(([subKey]) => subKey === subClass)
-      );
+      Object.entries(classData.subClasses).forEach(([subKey, subClassData]) => {
+        if (subClass && subKey !== subClass) return;
+        if (!subClassData) return;
+        
+        // Filter mushers by search term
+        const filteredMushers = subClassData.mushers.filter(musher => {
+          if (!searchLower) return true;
+          const matchMusherName = musher.name.toLowerCase().includes(searchLower);
+          const matchDogName = musher.associatedDog?.some(dog => 
+            dog.name.toLowerCase().includes(searchLower)
+          ) || false;
+          return matchMusherName || matchDogName;
+        });
+        
+        // Only include subclass if it has matching mushers
+        if (filteredMushers.length > 0) {
+          filteredSubClasses[subKey as SubClassKey] = {
+            ...subClassData,
+            mushers: filteredMushers
+          };
+        }
+      });
       
       return [key, { ...classData, subClasses: filteredSubClasses }];
     });
     
-    return filtered;
+    // Filter out classes with no subclasses left
+    return filtered.filter(([_, classData]) => {
+      return Object.keys((classData as EventClassData).subClasses).length > 0;
+    });
   };
 
   if (loading) {
