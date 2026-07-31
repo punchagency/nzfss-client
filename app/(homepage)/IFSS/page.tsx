@@ -140,15 +140,15 @@ function IFSSPage() {
                 </p>
 
                 <p className="font-[500] sm:text-[20px] lg:text-[1.25vw] md:text-[1.5vw] leading-[1.4] text-[#1A1A1ACC]">
-                  IFSS Oceania is represented by the Oceania Director at the IFSS council, 
-                  a bi-annual position elected by both ASSA and NZFSS. IFSS Oceania also features 
+                  IFSS Oceania is represented by the Oceania Director at the IFSS council,
+                  a position elected by both ASSA and NZFSS. IFSS Oceania also features
                   an athletes commission to represent our athletes in international aspects.
                 </p>
 
                 <div className="flex flex-col gap-y-[16px]">
                   <p className="font-[600] sm:text-[20px] lg:text-[1.25vw] md:text-[1.5vw] leading-[1.4]">Contact detail:</p>
-                  <a href="mailto:gabriele.altermann@sledogsport.net" className="text-[#0066CC] font-[500] sm:text-[20px] lg:text-[1.25vw] md:text-[1.5vw] leading-[1.4]">
-                    gabriele.altermann@sledogsport.net
+                  <a href="mailto:oceania@sleddogsport.net" className="text-[#0066CC] font-[500] sm:text-[20px] lg:text-[1.25vw] md:text-[1.5vw] leading-[1.4]">
+                    oceania@sleddogsport.net
                   </a>
                 </div>
 
