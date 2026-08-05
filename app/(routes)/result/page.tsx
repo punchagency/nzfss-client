@@ -63,8 +63,11 @@ interface GraphQLResponse {
   }> | null;
 }
 
+const CURRENT_YEAR = new Date().getFullYear();
+const SEASON_OPTIONS = Array.from({ length: 5 }, (_, i) => (CURRENT_YEAR - i).toString());
+
 const ResultsPage = () => {
-  const [selectedSeason, setSelectedSeason] = useState('2025');
+  const [selectedSeason, setSelectedSeason] = useState(CURRENT_YEAR.toString());
   const [eventsWithResults, setEventsWithResults] = useState<Event[]>([]);
   const router = useRouter();
   
@@ -155,9 +158,9 @@ const ResultsPage = () => {
                       className="px-4 py-2 border rounded-md"
                     >
                       <option value="">All Seasons</option>
-                      <option value="2025">2025</option>
-                      <option value="2024">2024</option>
-                      <option value="2023">2023</option>
+                      {SEASON_OPTIONS.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
                     </select>
                   </div>
                   
