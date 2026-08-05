@@ -5,6 +5,7 @@ import Header from '@/app/(homepage)/_components/header';
 import Footer from '@/app/(homepage)/_components/footer';
 import Inquires from '@/app/(homepage)/_components/inquires';
 import { gql, useQuery } from '@apollo/client';
+import { isCustomClassEntrant } from '@/lib/class-eligibility';
 
 const GET_ALL_POINTS = gql`
   query GetAllPoints {
@@ -172,63 +173,8 @@ const CLASS_HIERARCHY: Record<ClassKey, ClassHierarchy> = {
   }
 };
 
-const approvedClassesByRaceType: Record<string, string[]> = {
-  speed: [
-    "bikejoring",
-    "canicross",
-    "single-dog scooter",
-    "two-dog scooter",
-    "3-dog rig",
-    "4-dog rig",
-    "6-dog rig",
-    "8-dog rig",
-  ],
-  freight: [
-    "single-dog scooter",
-    "two-dog scooter",
-    "3-dog rig",
-    "4-dog rig",
-    "6-dog rig",
-    "8-dog rig",
-    "open class rig",
-  ],
-  snow: [
-    "skijoring",
-    "2-dog rig",
-    "3-dog rig",
-    "4-dog rig",
-    "6-dog rig",
-    "8-dog rig",
-    "open class rig",
-  ],
-  "weight pull": [
-    "27kg (60 pound) class",
-    "36kg (80 pound) class",
-    "50kg (110 pounds) class",
-    "unlimited class",
-  ],
-};
-
-const isCustomClassEntrant = (entrant: any): boolean => {
-  const rawClass = (entrant.class || "").trim().toLowerCase();
-  let raceType = rawClass;
-  if (rawClass.includes('weight') || rawClass.includes('pull')) {
-    raceType = 'weight pull';
-  } else if (rawClass.includes('freight')) {
-    raceType = 'freight';
-  } else if (rawClass.includes('snow')) {
-    raceType = 'snow';
-  } else if (rawClass.includes('speed')) {
-    raceType = 'speed';
-  }
-
-  const className = (entrant.customClass || "").trim().toLowerCase();
-  if (!className) return false;
-
-  const approvedClasses = approvedClassesByRaceType[raceType];
-  if (!approvedClasses) return false;
-  return !approvedClasses.includes(className);
-};
+// Ranking reads points already stored on each result, so it filters only the
+// custom classes here. See @/lib/class-eligibility for the scoring rules.
 
 const MusherRankingPage = () => {
   const currentYear = new Date().getFullYear();

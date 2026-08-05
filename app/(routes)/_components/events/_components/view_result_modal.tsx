@@ -58,6 +58,10 @@ interface Driver {
   weightPulled?: string;
   // Indicates this entry was newly added in the UI and does not exist on the server yet
   isNew?: boolean;
+  // Which heat this driver card represents. Heated races store one entrant
+  // document per heat, so this is what tells two cards for the same musher
+  // apart instead of one silently overwriting the other.
+  heat?: string;
 }
 
 // Define proper types for the results
@@ -426,22 +430,51 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
       setShowCustomClassInput(false);
     }
     
-    // Create a deep copy of the heats data to avoid reference issues
-    if (result.heatsData && Array.isArray(result.heatsData) && result.heatsData.length > 0) {
-      const heatsDataCopy = result.heatsData.map(heat => ({
-        ...heat,
-        heat: heat.heat || "",
-        temperature: heat.temperature || "",
-        distance: heat.distance || "",
-        class: result.class || ""
-      }));
-      setHeats(heatsDataCopy);
-      setSelectedHeat(result.heat || heatsDataCopy[0].heat);
+    // Each heat is stored as its own entrant document, so the clicked result
+    // only ever carries its own single heat. Merge in heatsData from sibling
+    // documents (same musher, class, and event) so every heat that was
+    // actually saved shows up in the heat selector, not just this one's.
+    const siblingResults = results.filter(r =>
+      r.name === result.name &&
+      r.class === result.class &&
+      (r.customClass || "") === (result.customClass || "") &&
+      r.eventId === result.eventId
+    );
+
+    const mergedHeatsMap = new Map<string, { heat: string; temperature: string; distance: string; class: string }>();
+    for (const sibling of siblingResults) {
+      if (sibling.heatsData && Array.isArray(sibling.heatsData) && sibling.heatsData.length > 0) {
+        for (const heat of sibling.heatsData) {
+          if (heat.heat) {
+            mergedHeatsMap.set(heat.heat, {
+              heat: heat.heat,
+              temperature: heat.temperature || "",
+              distance: heat.distance || "",
+              class: result.class || ""
+            });
+          }
+        }
+      } else if (sibling.heat) {
+        mergedHeatsMap.set(sibling.heat, {
+          heat: sibling.heat,
+          temperature: sibling.temperature || "",
+          distance: sibling.distance || "",
+          class: result.class || ""
+        });
+      }
+    }
+
+    if (mergedHeatsMap.size > 0) {
+      const mergedHeats = Array.from(mergedHeatsMap.values()).sort((a, b) =>
+        a.heat.localeCompare(b.heat, undefined, { numeric: true })
+      );
+      setHeats(mergedHeats);
+      setSelectedHeat(result.heat || mergedHeats[0].heat);
     } else {
       // Set default heat if none exists
-      setHeats([{ 
-        heat: 'Heat 1', 
-        temperature: '', 
+      setHeats([{
+        heat: 'Heat 1',
+        temperature: '',
         distance: '',
         class: result.class || ""
       }]);
@@ -648,6 +681,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
             raceStatus: raceStatus,
             dogWeight: (result as any).dogWeight || "",
             weightPulled: (result as any).weightPulled || "",
+            heat: result.heat || 'Heat 1',
             isNew: false
           };
         });
@@ -862,8 +896,15 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     let existingDriverIndex = -1;
     
     if (!isWeightPull) {
-      // For non-weight pull races, find existing driver to update **only if the exact same dog set exists**
-      existingDriverIndex = editedDrivers.findIndex(d => d.name === driverName && areDogsSame(d.dogs, [...selectedRows, ...customDogs]));
+      // For non-weight pull races, find existing driver to update **only if the exact same dog set exists**.
+      // A heated race keeps one card per heat, so the same musher running the same
+      // team in a different heat must match on heat too — otherwise "Add Driver" for
+      // Heat 2 just overwrites the Heat 1 card instead of creating a second one.
+      existingDriverIndex = editedDrivers.findIndex(d =>
+        d.name === driverName &&
+        areDogsSame(d.dogs, [...selectedRows, ...customDogs]) &&
+        (raceFormat !== 'Heated' || (d.heat || 'Heat 1') === selectedHeat)
+      );
     }
     // For weight pull, always treat as new entry (existingDriverIndex stays -1)
     
@@ -933,6 +974,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         })),
         raceStatus: selectedRaceStatus as "Started" | "Did not start" | "Did not finish" | "Disqualified",
         raceTime: selectedRaceStatus === "Started" ? formattedRaceTime : null,
+        heat: raceFormat === 'Heated' ? selectedHeat : 'Heat 1',
         isNew: true
       };
       
@@ -1862,7 +1904,7 @@ console.log("editedDrivers", editedDrivers);
           associatedDog,
           raceTime: driver.raceStatus === "Started" ? driver.raceTime : undefined,
           raceType: raceTypeValue,
-          heat: selectedHeat,
+          heat: raceFormat === 'Heated' ? (driver.heat || selectedHeat) : 'Heat 1',
           heatsData: finalHeatsData
         };
         
@@ -1905,10 +1947,15 @@ console.log("editedDrivers", editedDrivers);
           // If no exact match found for weight pull, this will be a new entrant
           console.log(`Weight pull entrant lookup for ${driver.name} with dogs [${driverDogNames}]: ${existingEntrant ? 'Found existing' : 'Creating new'}`);
         } else {
-          // For non-weight pull races, find by driver name **and exact dog set**
+          // For non-weight pull races, find by driver name **and exact dog set**.
+          // For heated races also require the heat to match — otherwise two cards
+          // for the same musher/dogs (one per heat) both resolve to the same
+          // document and the second save overwrites the first heat's data.
           const driverDogNames = driver.dogs.map((d: Dogs) => d.name).sort().join(',');
+          const driverHeat = raceFormat === 'Heated' ? (driver.heat || selectedHeat) : undefined;
           existingEntrant = results.find(entrant => {
             if (entrant.name !== driver.name || entrant.class !== selectedResult.class || (entrant.customClass || '') !== (selectedResult.customClass || '')) return false;
+            if (driverHeat && (entrant.heat || 'Heat 1') !== driverHeat) return false;
             const entrantDogNames = Array.isArray(entrant.associatedDog) ? entrant.associatedDog.map((d: any) => d.name).sort().join(',') : '';
             return driverDogNames === entrantDogNames;
           });

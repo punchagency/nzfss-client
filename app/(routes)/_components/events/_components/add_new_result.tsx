@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CREATE_RESULT } from "@/graphql/mutation/addResult";
+import { GET_ALL_RESULTS } from "@/graphql/query/addResult";
 import { CREATE_MUSHER } from "@/graphql/mutation/musher";
 import { GET_ALL_DOGS } from "@/graphql/query/dogs";
 import { useMutation, useQuery } from "@apollo/client";
@@ -348,7 +349,12 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
     onError: (error) => console.error("Musher query error:", error)
   });
   
-  const [createEntrant, { loading, error }] = useMutation(CREATE_RESULT);
+  const [createEntrant, { loading, error }] = useMutation(CREATE_RESULT, {
+    // Without this, the results/edit screen keeps serving its cached
+    // getAllEntrants list after a save here, so a newly-added heat is
+    // invisible until something else happens to force a refetch.
+    refetchQueries: [{ query: GET_ALL_RESULTS }],
+  });
   const [createMusher] = useMutation(CREATE_MUSHER);
 
   const router = useRouter();
@@ -2461,11 +2467,14 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
     const classValue = showClassInput || selectedClass?.toLowerCase() === "add custom class" ? customClass : selectedClass;
     
     if (selectedRadio !== "weight pull") {
-      // For non-weight pull races, find existing driver to update
-      existingEntrantIndex = entrants.findIndex(entrant => 
+      // For non-weight pull races, find existing driver to update. A heated
+      // race keeps one entry per heat — the same team normally runs every heat,
+      // so without the heat here Heat 2 would replace the Heat 1 entry.
+      existingEntrantIndex = entrants.findIndex(entrant =>
         entrant.driver.toLowerCase() === driverName.toLowerCase() &&
         entrant.class === selectedRadio &&
-        entrant.customClass === classValue
+        entrant.customClass === classValue &&
+        (selectedRaceFormat !== "Heated" || entrant.heat === dialogSelectedHeat)
       );
     }
 
