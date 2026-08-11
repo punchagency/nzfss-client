@@ -431,36 +431,40 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     }
     
     // Each heat is stored as its own entrant document, so the clicked result
-    // only ever carries its own single heat. Merge in heatsData from sibling
-    // documents (same musher, class, and event) so every heat that was
-    // actually saved shows up in the heat selector, not just this one's.
+    // only ever carries its own single heat. A heat belongs to the class, not
+    // to one musher, so merge the heats from every entrant of this class in
+    // this event — matching on the musher too would hide Heat 1 whenever the
+    // clicked row happens to be a musher who only ran Heat 2.
     const siblingResults = results.filter(r =>
-      r.name === result.name &&
       r.class === result.class &&
       (r.customClass || "") === (result.customClass || "") &&
       r.eventId === result.eventId
     );
 
     const mergedHeatsMap = new Map<string, { heat: string; temperature: string; distance: string; class: string }>();
+    const rememberHeat = (heat: string, temperature?: string, distance?: string) => {
+      const existing = mergedHeatsMap.get(heat);
+      mergedHeatsMap.set(heat, {
+        heat,
+        // Never let a row that was saved without temperature/distance blank out
+        // values another row already supplied for the same heat.
+        temperature: temperature || existing?.temperature || "",
+        distance: distance || existing?.distance || "",
+        class: result.class || ""
+      });
+    };
+
     for (const sibling of siblingResults) {
-      if (sibling.heatsData && Array.isArray(sibling.heatsData) && sibling.heatsData.length > 0) {
+      if (sibling.heatsData && Array.isArray(sibling.heatsData)) {
         for (const heat of sibling.heatsData) {
           if (heat.heat) {
-            mergedHeatsMap.set(heat.heat, {
-              heat: heat.heat,
-              temperature: heat.temperature || "",
-              distance: heat.distance || "",
-              class: result.class || ""
-            });
+            rememberHeat(heat.heat, heat.temperature, heat.distance);
           }
         }
-      } else if (sibling.heat) {
-        mergedHeatsMap.set(sibling.heat, {
-          heat: sibling.heat,
-          temperature: sibling.temperature || "",
-          distance: sibling.distance || "",
-          class: result.class || ""
-        });
+      }
+      // The row's own heat counts even when its heatsData is missing or stale.
+      if (sibling.heat) {
+        rememberHeat(sibling.heat, sibling.temperature, sibling.distance);
       }
     }
 
@@ -1875,17 +1879,20 @@ console.log("editedDrivers", editedDrivers);
         // Check if this is a weight pull event - use consistent detection (moved up)
         const isWeightPull = selectedRadio?.toLowerCase() === "weight pull" || raceType === "weight pull";
         
-        // Ensure heats data includes class information
+        // Ensure heats data includes class information. editedTemperature /
+        // editedDistance only mirror the heat currently open in the selector,
+        // so they may only fill in for that heat — using them everywhere would
+        // copy one heat's conditions onto every other heat.
         const updatedHeatsData = heats.map(heat => ({
           heat: heat.heat || "",
-          temperature: heat.temperature || editedTemperature || "",
-          distance: heat.distance || editedDistance || "",
+          temperature: heat.temperature || (heat.heat === selectedHeat ? editedTemperature : "") || "",
+          distance: heat.distance || (heat.heat === selectedHeat ? editedDistance : "") || "",
           class: selectedResult.class
         }));
 
         // Always include heatsData for both heated and single races
-        const finalHeatsData = raceFormat === 'Heated' 
-          ? updatedHeatsData 
+        const finalHeatsData = raceFormat === 'Heated'
+          ? updatedHeatsData
           : [{
               heat: 'Heat 1',
               temperature: editedTemperature || "",
@@ -1893,18 +1900,24 @@ console.log("editedDrivers", editedDrivers);
               class: selectedResult.class
             }];
 
+        // Each driver card belongs to one heat, so its row has to carry that
+        // heat's temperature and distance rather than whichever heat the
+        // selector happens to be showing.
+        const driverHeat = raceFormat === 'Heated' ? (driver.heat || selectedHeat) : 'Heat 1';
+        const driverHeatData = finalHeatsData.find(h => h.heat === driverHeat);
+
         const input: any = {
           class: selectedResult.class,
           customClass: customClass || undefined,
           raceFormat: raceFormat || undefined,
-          temperature: editedTemperature || undefined,
-          distance: isWeightPull ? "10 metres" : editedDistance || undefined,
+          temperature: driverHeatData?.temperature || editedTemperature || undefined,
+          distance: isWeightPull ? "10 metres" : driverHeatData?.distance || editedDistance || undefined,
           startTime: editedStartTime || undefined,
           name: driver.name,
           associatedDog,
           raceTime: driver.raceStatus === "Started" ? driver.raceTime : undefined,
           raceType: raceTypeValue,
-          heat: raceFormat === 'Heated' ? (driver.heat || selectedHeat) : 'Heat 1',
+          heat: driverHeat,
           heatsData: finalHeatsData
         };
         
@@ -2109,16 +2122,25 @@ console.log("editedDrivers", editedDrivers);
 
   // Heat management helpers
   function handleAddHeat() {
+    // Number from the highest existing heat rather than the count, so removing
+    // Heat 1 from [Heat 1, Heat 2] and adding again does not produce a second
+    // "Heat 2" that then collides with the existing one.
+    const nextHeatNumber = heats.reduce((highest, h) => {
+      const parsed = parseInt(h.heat.replace(/\D/g, ""), 10);
+      return Number.isNaN(parsed) ? highest : Math.max(highest, parsed);
+    }, 0) + 1;
+    const newHeat = `Heat ${nextHeatNumber}`;
+
     setHeats(prevHeats => [
       ...prevHeats,
       {
-        heat: `Heat ${prevHeats.length + 1}`,
+        heat: newHeat,
         temperature: "",
         distance: "",
         class: selectedResult?.class || ""
       }
     ]);
-    setSelectedHeat(`Heat ${heats.length + 1}`);
+    setSelectedHeat(newHeat);
   }
 
   function handleRemoveHeat(heatToRemove: string) {
@@ -2743,6 +2765,17 @@ console.log("editedDrivers", editedDrivers);
                             />
                           </svg>
                         </button>
+
+                        {/* A heated class holds one card per heat, so the same
+                            musher can appear more than once — say which heat
+                            this card is for. */}
+                        {raceFormat === 'Heated' && driver.heat && (
+                          <div>
+                            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                              {driver.heat}
+                            </span>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-4">
                           <div>
