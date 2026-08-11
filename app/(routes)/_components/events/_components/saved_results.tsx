@@ -16,6 +16,7 @@ import { LogHistoryModal } from "./log_history_modal";
 import { toast } from "sonner";
 import { useTab } from "@/context/tab_context";
 import { classEarnsPoints } from "@/lib/class-eligibility";
+import { buildMusherHeatGroups, dogKey, isFinishedRun, musherKey } from "@/lib/heat-scoring";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -626,13 +627,10 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
       return { points: 0, cutoffTime: '', dogPoints: {} };
     }
 
-    // Check if team is disqualified
-    const isDisqualified = entrant.drivers?.some(driver => 
-      driver.raceStatus === "Did not qualify" || 
-      driver.raceStatus === "Did not start"
-    );
-
-    if (isDisqualified) {
+    // Check if the run was completed. The status lives on the entrant row
+    // itself; the legacy drivers[] array is empty on every current record, so
+    // reading raceStatus from it silently let DNF/DNS entries score.
+    if (!isFinishedRun(entrant)) {
       return { points: 0, cutoffTime: '', dogPoints: {} };
     }
 
@@ -716,94 +714,81 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
       return { points, cutoffTime: '', dogPoints: {} };
     }
 
-    // For normal races (speed, freight, snow), calculate both musher and dog points
-    // Get and validate race time
-    const raceTime = getRaceTime(entrant);
-    
-    if (!raceTime || !/^\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(raceTime)) {
+    // For normal races (speed, freight, snow), calculate both musher and dog points.
+    // A heated race stores one row per heat, so ranking is done per musher over
+    // the combined heat time rather than per row.
+    const groups = buildMusherHeatGroups(allEntrantsInClass);
+    const ownGroup = groups.get(musherKey(entrant));
+
+    if (!ownGroup) {
       return { points: 0, cutoffTime: '', dogPoints: {} };
     }
 
-    // Get valid entrants (those with proper race times and valid status)
-    const validEntrants = allEntrantsInClass.filter((e: Entrant) => {
-      const entrantTime = getRaceTime(e);
-      const hasValidStatus = !e.drivers?.some(driver => 
-        driver.raceStatus === "Did not start" || 
-        driver.raceStatus === "Did not qualify"
-      );
-      return entrantTime && 
-             /^\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(entrantTime) && 
-             hasValidStatus;
-    });
-
-    if (validEntrants.length < 1) {
+    // Both heats have to be completed. A missing heat, a DNF or a DNS in any of
+    // them means the team scores nothing at all.
+    if (!ownGroup.complete) {
       return { points: 0, cutoffTime: '', dogPoints: {} };
     }
 
-    // Sort entrants by time (lower time first for races) with consistent tie-breaking
-    const sortedEntrants = [...validEntrants].sort((a, b) => {
-      const timeA = timeToSeconds(getRaceTime(a) || '');
-      const timeB = timeToSeconds(getRaceTime(b) || '');
-      
-      if (timeA !== timeB) {
-        return timeA - timeB;
-      }
-      return a._id.localeCompare(b._id);
-    });
-
-    // Find current entrant's position in sorted array
-    const entrantPosition = sortedEntrants.findIndex(e => e._id === entrant._id);
-
-    if (entrantPosition === -1) {
+    // Only one row per musher carries the points, otherwise season aggregation —
+    // which sums every stored points row — would count the team once per heat.
+    if (ownGroup.scoringRowId !== entrant._id) {
       return { points: 0, cutoffTime: '', dogPoints: {} };
     }
 
-    // Calculate actual rank considering ties
-    // Find how many entrants have better times (faster times)
-    const currentEntrantTime = timeToSeconds(getRaceTime(entrant) || '');
-    const betterEntrants = validEntrants.filter((e: Entrant) => {
-      const entrantTime = timeToSeconds(getRaceTime(e) || '');
-      return entrantTime < currentEntrantTime;
-    });
+    // Rank complete teams against each other by combined time.
+    const rankedGroups = [...groups.values()]
+      .filter(group => group.complete)
+      .sort((a, b) => {
+        if (a.totalSeconds !== b.totalSeconds) return a.totalSeconds - b.totalSeconds;
+        return a.scoringRowId.localeCompare(b.scoringRowId);
+      });
 
-    const actualRank = betterEntrants.length + 1;
+    if (rankedGroups.length < 1) {
+      return { points: 0, cutoffTime: '', dogPoints: {} };
+    }
+
+    const ownTotalSeconds = ownGroup.totalSeconds;
+    const actualRank = rankedGroups.filter(g => g.totalSeconds < ownTotalSeconds).length + 1;
 
     // Calculate musher points using Annual Musher System based on actual rank
-    const calculatedPoints = Math.max(1, sortedEntrants.length - actualRank + 1);
+    const calculatedPoints = Math.max(1, rankedGroups.length - actualRank + 1);
     const points = isRegisteredMusher ? calculatedPoints : 0;
 
     // Calculate cutoff time for dog points (winning time * 1.25)
-    const winningTime = timeToSeconds(getRaceTime(sortedEntrants[0]) || '');
+    const winningTime = rankedGroups[0].totalSeconds;
     const cutoffTimeSeconds = winningTime * 1.25;
     const cutoffTime = new Date(cutoffTimeSeconds * 1000).toISOString().substr(11, 8);
 
     // Calculate dog points using Championship Harness Dog System
     const dogPoints: Record<string, number> = {};
-    
-    // Check if entrant has associated dogs
-    if (entrant.associatedDog && Array.isArray(entrant.associatedDog)) {
-      const entrantTimeSeconds = timeToSeconds(raceTime);
-      const isWithinCutoff = entrantTimeSeconds <= cutoffTimeSeconds;
 
-      // Process each dog
-      for (const dog of entrant.associatedDog) {
-        const isRegisteredDog = dog.NZFSSRegistration && 
-                               dog.NZFSSRegistration.trim() !== '' && 
+    // Dogs are collected across every heat, but only those that ran them all score.
+    const isWithinCutoff = ownTotalSeconds <= cutoffTimeSeconds;
+    const isFirstPlace = actualRank === 1;
+
+    for (const row of ownGroup.rows) {
+      for (const dog of row.associatedDog || []) {
+        const isRegisteredDog = dog.NZFSSRegistration &&
+                               dog.NZFSSRegistration.trim() !== '' &&
                                dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-        
-        // Calculate points based on position and cutoff time for registered dogs only
+
+        // A dog dropped from one of the heats earns nothing, even though the
+        // team it ran with may still score.
+        const ranEveryHeat = ownGroup.qualifyingDogKeys.has(dogKey(dog));
+
         let dogPointValue: number = 0;
 
-        if (isRegisteredDog) {
-          if (entrantPosition === 0) {
+        if (isRegisteredDog && ranEveryHeat) {
+          if (isFirstPlace) {
             // First place gets 10 points
             dogPointValue = 10;
           } else if (isWithinCutoff) {
             // Calculate points for teams within cutoff time
-            const timeDiff = cutoffTimeSeconds - entrantTimeSeconds;
+            const timeDiff = cutoffTimeSeconds - ownTotalSeconds;
             const winningTimeDiff = cutoffTimeSeconds - winningTime;
-            const rawPoints = (timeDiff / winningTimeDiff) * 10;
-            
+            const rawPoints = winningTimeDiff > 0 ? (timeDiff / winningTimeDiff) * 10 : 10;
+
             // Round to nearest 0.5 and ensure minimum of 1 point
             dogPointValue = Math.max(1, Math.round(rawPoints * 2) / 2);
           } else {
@@ -813,8 +798,10 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
         }
 
         // Store the calculated points (use dog name as key if no registration)
-        const dogKey = dog.NZFSSRegistration || dog.name;
-        dogPoints[dogKey] = dogPointValue;
+        const key = dog.NZFSSRegistration || dog.name;
+        if (key) {
+          dogPoints[key] = dogPointValue;
+        }
       }
     }
 
@@ -941,14 +928,27 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     try {
       setIsSubmitting(true);
 
-      // Optional: Debug submission context if needed
-      // console.log('=== SUBMISSION DEBUG ===', { showSubmittedEntrants, entrantsCount: entrantsToSubmit.length });
+      // Adding one late entrant re-ranks everyone in its class, so the whole
+      // class is rewritten rather than just the rows that were pending. The
+      // server replaces points per entrant, so resubmitting is not a duplicate.
+      const affectedClasses = new Set(
+        entrantsToSubmit.map(e => `${e.eventId}|${e.class}|${e.customClass}`)
+      );
+      const expandedEntrants: Entrant[] = (resultsData?.getAllEntrants || []).filter(
+        (e: Entrant) => affectedClasses.has(`${e.eventId}|${e.class}|${e.customClass}`)
+      );
+      // Fall back to the original list if the full dataset is unavailable.
+      const entrantsForSubmission = expandedEntrants.length > 0 ? expandedEntrants : entrantsToSubmit;
 
       // Validate and prepare points data for submission
-      const validatedPointsData = entrantsToSubmit.map(entrant => {
-        // Calculate points for this entrant
-        const allEntrantsInClass = filteredResults.filter((e: Entrant) => 
-          e.class === entrant.class && 
+      const validatedPointsData = entrantsForSubmission.map(entrant => {
+        // Rank against every entrant in the class, not just the ones being
+        // submitted. filteredResults hides already-submitted entrants, so using
+        // it here left a late entrant ranked alone and awarded first place.
+        // The class is scoped to this event: rankings are per race.
+        const allEntrantsInClass = (resultsData?.getAllEntrants || []).filter((e: Entrant) =>
+          e.eventId === entrant.eventId &&
+          e.class === entrant.class &&
           e.customClass === entrant.customClass
         );
 
