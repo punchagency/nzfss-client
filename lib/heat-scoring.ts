@@ -94,13 +94,32 @@ function heatSortValue(label: string): number {
 }
 
 /**
- * How many heats the class ran, taken as the number of distinct heats recorded
- * across every entrant in it. A class where everyone ran once stays a valid
- * single-heat race; if any musher has a second heat, the class ran two.
+ * How many heats the class ran.
+ *
+ * A heat label only counts when at least two mushers recorded it (or the class
+ * has a single musher). That stops one corrupted stray "Heat 2" row from
+ * marking every other team incomplete and awarding the polluter first place.
  */
 export function expectedHeatsForClass(entrantsInClass: ScoringEntrant[]): Set<string> {
+  const mushersByHeat = new Map<string, Set<string>>();
+  const allMushers = new Set<string>();
+
+  for (const entrant of entrantsInClass) {
+    const musher = musherKey(entrant);
+    if (!musher) continue;
+    allMushers.add(musher);
+    const label = heatLabel(entrant);
+    if (!mushersByHeat.has(label)) mushersByHeat.set(label, new Set());
+    mushersByHeat.get(label)!.add(musher);
+  }
+
+  const threshold = allMushers.size <= 1 ? 1 : 2;
   const heats = new Set<string>();
-  for (const entrant of entrantsInClass) heats.add(heatLabel(entrant));
+  for (const [label, mushers] of mushersByHeat) {
+    if (mushers.size >= threshold) heats.add(label);
+  }
+
+  if (heats.size === 0) heats.add("Heat 1");
   return heats;
 }
 
@@ -127,8 +146,23 @@ export function buildMusherHeatGroups(
       };
       groups.set(key, group);
     }
-    group.rows.push(entrant);
-    group.heatsRun.add(heatLabel(entrant));
+
+    // Collapse duplicate rows that share a heat label (legacy bug from
+    // editing dog teams created multiple "Heat 1" documents). Prefer the
+    // row with the larger dog team so added dogs are not dropped.
+    const label = heatLabel(entrant);
+    const existingIdx = group.rows.findIndex((row) => heatLabel(row) === label);
+    if (existingIdx >= 0) {
+      const existing = group.rows[existingIdx];
+      const existingDogs = existing.associatedDog?.length || 0;
+      const nextDogs = entrant.associatedDog?.length || 0;
+      if (nextDogs >= existingDogs) {
+        group.rows[existingIdx] = entrant;
+      }
+    } else {
+      group.rows.push(entrant);
+      group.heatsRun.add(label);
+    }
   }
 
   for (const group of groups.values()) {

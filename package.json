@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:eric-bugs": "npx tsx lib/eric-result-bugs.test.ts",
     "schema:generate-watch": "npx apollo codegen:generate --localSchemaFile=./graphql/graphql.schema.json --target=typescript --tagName=gql --watch"
   },
   "dependencies": {

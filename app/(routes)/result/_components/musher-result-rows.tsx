@@ -185,7 +185,12 @@ function DogPointsList({
   return (
     <div className="space-y-1">
       {entries.map((dog, i) => {
-        const dogPoint = dogPoints.find((dp) => dp.NZFSSRegistration === dog.NZFSSRegistration);
+        const dogReg = (dog.NZFSSRegistration || '').trim().toLowerCase();
+        const dogName = (dog.name || '').trim().toLowerCase();
+        const dogPoint = dogPoints.find((dp) => {
+          const reg = (dp.NZFSSRegistration || '').trim().toLowerCase();
+          return (dogReg && reg === dogReg) || (dogName && reg === dogName);
+        });
         return (
           <div key={i} className="flex items-center gap-2">
             <span className="font-medium text-gray-900">{dogPoint ? dogPoint.points : '0'}</span>
