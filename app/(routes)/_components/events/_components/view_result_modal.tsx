@@ -11,6 +11,20 @@ import {
 import { X } from "lucide-react";
 import { MusherResultRows } from "@/app/(routes)/result/_components/musher-result-rows";
 import { computeMusherRanks, musherKey } from "@/lib/race-result-grouping";
+import {
+  dedupeEntrantsForEdit,
+  findDriverCardToUpdate,
+  isHeatedFormat,
+  isMongoId,
+  isWeightPullClass,
+  planOrphanCleanup,
+  resolveEntrantForUpdate,
+} from "@/lib/result-edit-matching";
+import {
+  buildNewClassConditions,
+  findCollidingDriverCards,
+  resolveDogRegistration,
+} from "@/lib/new-class-submission";
 import { useRouter } from "next/navigation";
 import { LogHistoryModal } from "./log_history_modal";
 import { Label } from "@/components/ui/label";
@@ -29,7 +43,7 @@ import {
 } from "@/graphql/mutation/addResult";
 import { useToast } from "@/hooks/use-toast";
 import { GET_MUSHERS } from "@/lib/graphql/musher";
-import { GET_ALL_RESULTS } from "@/graphql/query/addResult";
+import { GET_ALL_RESULTS, GET_RESULTS_BY_EVENT_ID } from "@/graphql/query/addResult";
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -62,6 +76,9 @@ interface Driver {
   // document per heat, so this is what tells two cards for the same musher
   // apart instead of one silently overwriting the other.
   heat?: string;
+  // Persisted entrant document id — used so dog-team edits update the same
+  // row instead of creating a duplicate Heat 1 when the dog set changes.
+  _id?: string;
 }
 
 // Define proper types for the results
@@ -215,6 +232,9 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   const [selectedRaceStatus, setSelectedRaceStatus] = useState<string>("Started");
   const [heats, setHeats] = useState<HeatData[]>([{ heat: 'Heat 1', temperature: '', distance: '' }]);
   const [selectedHeat, setSelectedHeat] = useState('Heat 1');
+  // When "Add Dog" opens the driver modal for an existing card, remember which
+  // card so confirm merges into it instead of creating a duplicate.
+  const [editingDriverIndex, setEditingDriverIndex] = useState<number | null>(null);
   
   // Keep track of the current race time values
   const [timeInputState, setTimeInputState] = useState({
@@ -278,7 +298,8 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   // Initialize race format when selected result changes
   useEffect(() => {
     if (selectedResult) {
-      setRaceFormat(selectedResult.raceFormat || "");
+      // Default missing raceFormat to Single — never "" or every heat collapses to Heat 1
+      setRaceFormat(selectedResult.raceFormat || "Single");
     }
   }, [selectedResult]);
 
@@ -593,8 +614,19 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     }
   );
   
-  // Add a refetch function for GET_ALL_RESULTS
-  const { refetch: refetchResults } = useQuery(GET_ALL_RESULTS, {
+  // Every result shown here belongs to one event.
+  const modalEventId = useMemo(
+    () => results.find((r) => r.eventId)?.eventId || "",
+    [results]
+  );
+
+  // Refetch this event's entrants after saving. This used to ask for
+  // GET_ALL_RESULTS, which answers under getAllEntrants — so every caller's
+  // check for getEntrantsByEventId was false and the refresh silently did
+  // nothing, leaving the modal showing optimistic state the server had not
+  // agreed to.
+  const { refetch: refetchResults } = useQuery(GET_RESULTS_BY_EVENT_ID, {
+    variables: { eventId: modalEventId },
     skip: true, // Skip initial fetch, we'll call refetch manually
     fetchPolicy: "network-only" // Always get fresh data from the server
   });
@@ -630,7 +662,10 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
 
   // Update the effect to handle dog objects when initializing editedDrivers
   useEffect(() => {
-    if (selectedResult) {
+    // A new class starts with no drivers. selectedResult still points at the
+    // class opened before it, so without this guard a refetch would refill the
+    // Add New Class form with the previous class's drivers.
+    if (selectedResult && !showAddClassForm) {
       // Only initialize if editedDrivers is empty
       if (editedDrivers.length === 0) {
         // Filter results to only include those matching the selected class and customClass
@@ -642,8 +677,41 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
 
         console.log("Matching results for driver setup:", matchingResults);
 
+        // Collapse legacy duplicate rows (same musher + heat) created by the
+        // old dog-set matching bug. Prefer the fullest dog team.
+        const isWeightPullClassFlag = isWeightPullClass(
+          selectedResult.class,
+          selectedResult.customClass
+        );
+        const isHeatedFlag = isHeatedFormat(
+          selectedResult.raceFormat || raceFormat
+        );
+
+        const dedupedResults = dedupeEntrantsForEdit(
+          matchingResults.map((r) => ({
+            _id: r._id,
+            name: r.name,
+            class: r.class,
+            customClass: r.customClass,
+            heat: r.heat,
+            raceFormat: r.raceFormat,
+            associatedDog: Array.isArray(r.associatedDog)
+              ? r.associatedDog.map((d) => ({
+                  name: d.name || "",
+                  NZFSSRegistration: d.NZFSSRegistration || "",
+                }))
+              : [],
+          })),
+          { isWeightPull: isWeightPullClassFlag, isHeated: isHeatedFlag }
+        );
+
+        const dedupedIds = new Set(dedupedResults.map((r) => r._id));
+        const dedupedMatching = matchingResults.filter((r) =>
+          dedupedIds.has(r._id)
+        );
+
         // Add drivers from matching results
-        const initialDrivers = matchingResults.map((result) => {
+        const initialDrivers = dedupedMatching.map((result) => {
           // Convert associatedDog to Dogs array
           const dogObjects: Dogs[] = Array.isArray(result.associatedDog)
             ? result.associatedDog.map((dog) => ({
@@ -679,6 +747,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
           }
 
           return {
+            _id: result._id,
             name: result.name,
             dogs: dogObjects,
             raceTime: result.raceTime || null,
@@ -708,7 +777,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         }
       }
     }
-  }, [selectedResult, results]);
+  }, [selectedResult, results, showAddClassForm]);
 
   const [deleteEntrant] = useMutation(DELETE_ENTRANT, {
     refetchQueries: [{ query: GET_ALL_RESULTS }],
@@ -816,6 +885,18 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   };
 
   // Reset state when closing the edit form
+  // Leaving the Add New Class form has to drop its drivers. They belong to a
+  // class that may never have been saved, and anything left behind would be
+  // picked up by the next class opened for editing.
+  const handleCloseAddClassForm = () => {
+    setShowAddClassForm(false);
+    setEditedDrivers([]);
+    setOriginalEditedDrivers([]);
+    setEditingDriverIndex(null);
+    setHeats([{ heat: "Heat 1", temperature: "", distance: "" }]);
+    setSelectedHeat("Heat 1");
+  };
+
   const handleCloseEditForm = () => {
     setShowEditForm(false);
     setSelectedResult(null);
@@ -858,8 +939,12 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   // Add a function to add a new dog to a driver
   const handleAddDogToDriver = (driverIndex: number) => {
     const driver = editedDrivers[driverIndex];
+    setEditingDriverIndex(driverIndex);
     setDriverName(driver.name);
     setSelectedRows(driver.dogs);
+    if (raceFormat === 'Heated') {
+      setSelectedHeat(driver.heat || 'Heat 1');
+    }
     setShowAddDriverModal(true);
   };
 
@@ -893,24 +978,20 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     }
 
     // Check if this is a weight pull event - use consistent detection
-    const isWeightPull = selectedRadio?.toLowerCase() === "weight pull" || raceType === "weight pull";
+    const isWeightPull = isWeightPullClass(selectedRadio || raceType, customClass);
+    const isHeated = isHeatedFormat(raceFormat);
     
-    // For weight pull, always create separate entries for each dog
-    // For other race types, check for existing driver to update
-    let existingDriverIndex = -1;
-    
-    if (!isWeightPull) {
-      // For non-weight pull races, find existing driver to update **only if the exact same dog set exists**.
-      // A heated race keeps one card per heat, so the same musher running the same
-      // team in a different heat must match on heat too — otherwise "Add Driver" for
-      // Heat 2 just overwrites the Heat 1 card instead of creating a second one.
-      existingDriverIndex = editedDrivers.findIndex(d =>
-        d.name === driverName &&
-        areDogsSame(d.dogs, [...selectedRows, ...customDogs]) &&
-        (raceFormat !== 'Heated' || (d.heat || 'Heat 1') === selectedHeat)
-      );
-    }
-    // For weight pull, always treat as new entry (existingDriverIndex stays -1)
+    // For weight pull, always create separate entries for each dog.
+    // For other race types, update the card we opened "Add Dog" on, or the
+    // existing card for this musher (+ heat). Match by identity — not by the
+    // exact dog set — otherwise adding a dog creates a duplicate Heat 1 row.
+    const existingDriverIndex = findDriverCardToUpdate(editedDrivers, {
+      driverName,
+      selectedHeat,
+      isHeated,
+      isWeightPull,
+      editingDriverIndex,
+    });
     
     if (existingDriverIndex !== -1) {
       // Update existing driver (only for non-weight pull races)
@@ -942,6 +1023,12 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
           }))
         };
         return newDrivers;
+      });
+
+      toast({
+        title: "Team updated",
+        description: "Dog team updated. Click Submit to save all changes.",
+        variant: "default",
       });
     } else {
       // Create new driver entry (for weight pull or new drivers in other races)
@@ -1006,6 +1093,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     }
 
     // Reset form
+    setEditingDriverIndex(null);
     setDriverName("");
     setSelectedRows([]);
     setCustomDogs([]);
@@ -1048,7 +1136,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
     const newDog: Dogs = {
       id: `custom-${Date.now()}`,
       name: tempDogName,
-      NZFSSRegistration: tempRegistration || "Unknown",
+      NZFSSRegistration: tempRegistration || "",
       dob: tempDob || "2000-01-01", // Default date if not provided
       breed: tempBreed || "Unknown",
       driverName: driverName,
@@ -1072,6 +1160,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   const handleToggleAddDriverModal = useCallback((show: boolean) => {
     if (!show) {
       // Reset state when closing without saving
+      setEditingDriverIndex(null);
       setDriverName("");
       setSelectedRows([]);
       setFilteredDrivers([]);
@@ -1119,8 +1208,8 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         ...driver, 
         dogs: driver.dogs.map((dog: Dogs) => ({
           ...dog,
-          // Ensure required fields are never undefined
-          NZFSSRegistration: dog.NZFSSRegistration || 'Unknown',
+          // Keep blank registrations blank (do not coerce to "Unknown")
+          NZFSSRegistration: dog.NZFSSRegistration || '',
           breed: dog.breed || 'Unknown',
           dob: dog.dob || '2000-01-01'
         })),
@@ -1142,8 +1231,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
           ...newDrivers[index],
           [field]: (value as Dogs[]).map(dog => ({
             ...dog,
-            // Ensure required fields are never undefined
-            NZFSSRegistration: dog.NZFSSRegistration || 'Unknown',
+            NZFSSRegistration: dog.NZFSSRegistration || '',
             breed: dog.breed || 'Unknown',
             dob: dog.dob || '2000-01-01'
           }))
@@ -1436,9 +1524,11 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
       if (key === 'associatedDog' && Array.isArray(value)) {
         sanitized[key] = value.map((dog: { name?: string; NZFSSRegistration?: string; dob?: string; breed?: string; driverName?: string }) => ({
           name: dog.name || 'Unknown',
-          NZFSSRegistration: dog.NZFSSRegistration || 'Unknown',  // Ensure this is never undefined
+          // Keep blank registrations blank — coercing to "Unknown" made real
+          // dogs look unregistered and broke dog-points lookup by reg number.
+          NZFSSRegistration: dog.NZFSSRegistration || '',
           dob: dog.dob || '2000-01-01',
-          breed: dog.breed || 'Unknown',  // Ensure this is never undefined
+          breed: dog.breed || 'Unknown',
           driverName: dog.driverName || 'Unknown'
         }));
         continue;
@@ -1472,8 +1562,8 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
       sanitized.weightPulled = input.weightPulled || '';
     }
     
-    // Explicitly include raceFormat
-    sanitized.raceFormat = input.raceFormat || '';
+    // Explicitly include raceFormat — never persist a blank string
+    sanitized.raceFormat = input.raceFormat || 'Single';
     
     console.log("Sanitized input for GraphQL:", JSON.stringify(sanitized, null, 2));
     
@@ -1507,12 +1597,21 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         };
       }
 
-      // Update the original results to ensure persistence
-      if (selectedResult) {
+      // Update the original results to ensure persistence. A new class has no
+      // saved rows yet, and selectedResult still points at the class opened
+      // before it — writing there would edit a different class's dog team.
+      if (!showAddClassForm && selectedResult) {
+        const driverBeingEdited = newDrivers[driverIndex];
         const updatedResults = results.map(result => {
-          if (result.name === newDrivers[driverIndex].name && 
-              result.class === selectedResult.class && 
-              (result.customClass || "") === (selectedResult.customClass || "")) {
+          const sameEntrant =
+            (driverBeingEdited._id && result._id === driverBeingEdited._id) ||
+            (!driverBeingEdited._id &&
+              result.name === driverBeingEdited.name &&
+              result.class === selectedResult.class &&
+              (result.customClass || "") === (selectedResult.customClass || "") &&
+              (raceFormat !== 'Heated' || (result.heat || 'Heat 1') === (driverBeingEdited.heat || 'Heat 1')));
+
+          if (sameEntrant) {
             return {
               ...result,
               associatedDog: newDrivers[driverIndex].dogs.map((dog: Dogs) => ({
@@ -1548,12 +1647,21 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         dogs: updatedDogs
       };
 
-      // Update the original results to ensure persistence
-      if (selectedResult) {
+      // Update the original results to ensure persistence. A new class has no
+      // saved rows yet, and selectedResult still points at the class opened
+      // before it — writing there would edit a different class's dog team.
+      if (!showAddClassForm && selectedResult) {
+        const driverBeingEdited = newDrivers[driverIndex];
         const updatedResults = results.map(result => {
-          if (result.name === newDrivers[driverIndex].name && 
-              result.class === selectedResult.class && 
-              (result.customClass || "") === (selectedResult.customClass || "")) {
+          const sameEntrant =
+            (driverBeingEdited._id && result._id === driverBeingEdited._id) ||
+            (!driverBeingEdited._id &&
+              result.name === driverBeingEdited.name &&
+              result.class === selectedResult.class &&
+              (result.customClass || "") === (selectedResult.customClass || "") &&
+              (raceFormat !== 'Heated' || (result.heat || 'Heat 1') === (driverBeingEdited.heat || 'Heat 1')));
+
+          if (sameEntrant) {
             return {
               ...result,
               associatedDog: updatedDogs.map((dog: Dogs) => ({
@@ -1807,6 +1915,7 @@ console.log("editedDrivers", editedDrivers);
       let creationPromises = [];
       let updatePromises = [];
       let deletePromises = [];
+      let orphanDeletePromises: Promise<any>[] = [];
       
       // Keep track of local updates for immediate UI feedback
       let localUpdatedResults = [...results];
@@ -1817,28 +1926,64 @@ console.log("editedDrivers", editedDrivers);
       console.log("Selected radio:", selectedRadio);
 
       // First, handle deletions by comparing original and edited drivers
-      const originalDriverNames = originalEditedDrivers.map(d => d.name);
-      const currentDriverNames = editedDrivers.map(d => d.name);
-      const deletedDriverNames = originalDriverNames.filter(name => !currentDriverNames.includes(name));
+      // Prefer matching by entrant _id so heat siblings and dog-set changes
+      // do not delete (or spare) the wrong document.
+      const isHeatedSubmit = isHeatedFormat(raceFormat);
+      const isWeightPullSubmit = isWeightPullClass(
+        selectedRadio || raceType || selectedResult.class,
+        customClass || selectedResult.customClass
+      );
 
-      console.log(`Processing ${editedDrivers.length} drivers (${deletedDriverNames.length} to delete)`);
-
-      // Delete removed drivers
-      for (const deletedName of deletedDriverNames) {
-        const driverToDelete = results.find(
-          (entrant) => entrant.name === deletedName && 
-          entrant.class === selectedResult.class &&
-          (entrant.customClass || "") === (selectedResult.customClass || "")
+      const currentDriverIds = new Set(
+        editedDrivers
+          .map((d) => d._id)
+          .filter((id): id is string => isMongoId(id))
+      );
+      const driversToDelete = originalEditedDrivers.filter((original) => {
+        if (isMongoId(original._id)) {
+          return !currentDriverIds.has(original._id);
+        }
+        // Legacy cards without an id: fall back to name (+ heat for heated)
+        return !editedDrivers.some(
+          (current) =>
+            current.name === original.name &&
+            (!isHeatedSubmit || (current.heat || 'Heat 1') === (original.heat || 'Heat 1'))
         );
+      });
 
-        if (driverToDelete && driverToDelete._id && /^[0-9a-fA-F]{24}$/.test(driverToDelete._id)) {
-          const deletePromise = deleteEntrant({
-            variables: {
-              entrantId: driverToDelete._id
-            }
-          });
-          deletePromises.push(deletePromise);
-          deletedIds.push(driverToDelete._id);
+      console.log(`Processing ${editedDrivers.length} drivers (${driversToDelete.length} to delete)`);
+
+      // Delete removed drivers — also delete any legacy duplicate rows that
+      // were collapsed out of the edit form so they cannot reappear on refetch.
+      const classRowsForDelete = results.filter(
+        (r) =>
+          r.class === selectedResult.class &&
+          (r.customClass || "") === (selectedResult.customClass || "")
+      );
+
+      for (const driverToDelete of driversToDelete) {
+        const idsToRemove = new Set<string>();
+
+        if (isMongoId(driverToDelete._id)) {
+          idsToRemove.add(driverToDelete._id);
+        }
+
+        for (const entrant of classRowsForDelete) {
+          if (entrant.name !== driverToDelete.name) continue;
+          if (
+            isHeatedSubmit &&
+            (entrant.heat || "Heat 1") !== (driverToDelete.heat || "Heat 1")
+          ) {
+            continue;
+          }
+          if (isMongoId(entrant._id)) idsToRemove.add(entrant._id);
+        }
+
+        for (const entrantId of idsToRemove) {
+          deletePromises.push(
+            deleteEntrant({ variables: { entrantId } })
+          );
+          deletedIds.push(entrantId);
           hasUpdatedResults = true;
         }
       }
@@ -1854,8 +1999,64 @@ console.log("editedDrivers", editedDrivers);
         await Promise.all(deletePromises);
       }
 
+      // Plan orphan cleanup once up-front so two cards for the same musher
+      // cannot mutually delete each other mid-loop.
+      const editRowsSnapshot = localUpdatedResults.map((r) => ({
+        _id: r._id,
+        name: r.name,
+        class: r.class,
+        customClass: r.customClass,
+        heat: r.heat,
+        raceFormat: r.raceFormat,
+        associatedDog: Array.isArray(r.associatedDog)
+          ? r.associatedDog.map((d) => ({
+              name: d.name || "",
+              NZFSSRegistration: d.NZFSSRegistration || "",
+            }))
+          : [],
+      }));
+
+      const { orphanIds: plannedOrphanIds } = planOrphanCleanup(
+        editedDrivers.map((d) => ({
+          _id: d._id,
+          name: d.name,
+          dogs: d.dogs.map((dog: Dogs) => ({
+            name: dog.name,
+            NZFSSRegistration: dog.NZFSSRegistration,
+          })),
+          heat: d.heat,
+          isNew: d.isNew,
+        })),
+        editRowsSnapshot,
+        {
+          className: selectedResult.class,
+          customClass: selectedResult.customClass || "",
+          isHeated: isHeatedSubmit,
+          isWeightPull: isWeightPullSubmit,
+          selectedHeat,
+        }
+      );
+
+      for (const orphanId of plannedOrphanIds) {
+        orphanDeletePromises.push(
+          deleteEntrant({ variables: { entrantId: orphanId } })
+        );
+        deletedIds.push(orphanId);
+        hasUpdatedResults = true;
+      }
+      if (plannedOrphanIds.size > 0) {
+        localUpdatedResults = localUpdatedResults.filter(
+          (result) => !plannedOrphanIds.has(result._id)
+        );
+      }
+
       // Process each driver in the current editedDrivers list
       for (const driver of editedDrivers) {
+        // Skip cards whose rows were planned as orphans (kept card wins)
+        if (isMongoId(driver._id) && plannedOrphanIds.has(driver._id)) {
+          continue;
+        }
+
         let raceTypeValue = driver.raceStatus.toLowerCase();
         
         // Add debug logging for each driver
@@ -1868,16 +2069,28 @@ console.log("editedDrivers", editedDrivers);
           dogs: driver.dogs.map((dog: Dogs) => dog.name).join(", ")
         });
 
+        // Rows saved by the older entry form recorded the literal word
+        // "Unknown" whenever it could not find the dog, and an unregistered dog
+        // scores nothing — so look the number up again and let a re-save repair
+        // the row.
+        const driverMusher = data?.getMushers?.find(
+          (m) => m.name?.toLowerCase() === driver.name.toLowerCase()
+        );
+
         const associatedDog = driver.dogs.map((dog: Dogs) => ({
           name: dog.name || 'Unknown',
-          NZFSSRegistration: dog.NZFSSRegistration || 'Unknown',
+          NZFSSRegistration: resolveDogRegistration(
+            dog,
+            driverMusher?.dogs?.find(
+              (d: any) => d.name?.toLowerCase() === dog.name?.toLowerCase()
+            )
+          ),
           dob: dog.dob || '2000-01-01',
           breed: dog.breed || 'Unknown',
           driverName: driver.name
         }));
 
-        // Check if this is a weight pull event - use consistent detection (moved up)
-        const isWeightPull = selectedRadio?.toLowerCase() === "weight pull" || raceType === "weight pull";
+        const isWeightPull = isWeightPullSubmit;
         
         // Ensure heats data includes class information. editedTemperature /
         // editedDistance only mirror the heat currently open in the selector,
@@ -1891,7 +2104,7 @@ console.log("editedDrivers", editedDrivers);
         }));
 
         // Always include heatsData for both heated and single races
-        const finalHeatsData = raceFormat === 'Heated'
+        const finalHeatsData = isHeatedSubmit
           ? updatedHeatsData
           : [{
               heat: 'Heat 1',
@@ -1903,13 +2116,13 @@ console.log("editedDrivers", editedDrivers);
         // Each driver card belongs to one heat, so its row has to carry that
         // heat's temperature and distance rather than whichever heat the
         // selector happens to be showing.
-        const driverHeat = raceFormat === 'Heated' ? (driver.heat || selectedHeat) : 'Heat 1';
+        const driverHeat = isHeatedSubmit ? (driver.heat || selectedHeat) : 'Heat 1';
         const driverHeatData = finalHeatsData.find(h => h.heat === driverHeat);
 
         const input: any = {
           class: selectedResult.class,
           customClass: customClass || undefined,
-          raceFormat: raceFormat || undefined,
+          raceFormat: raceFormat || "Single",
           temperature: driverHeatData?.temperature || editedTemperature || undefined,
           distance: isWeightPull ? "10 metres" : driverHeatData?.distance || editedDistance || undefined,
           startTime: editedStartTime || undefined,
@@ -1934,48 +2147,36 @@ console.log("editedDrivers", editedDrivers);
           isWeightPull
         });
 
-        // For weight pull, find existing entrant by matching driver name, class, and dog names
-        // For other races, find by driver name and class only
-        let existingEntrant;
-        
-        if (isWeightPull) {
-          // In weight pull, each dog competes individually, so match by driver name, class, and specific dogs
-          const driverDogNames = driver.dogs.map((dog: Dogs) => dog.name).sort().join(",");
-          
-          existingEntrant = results.find((entrant) => {
-            if (entrant.name !== driver.name || 
-                entrant.class !== selectedResult.class ||
-                (entrant.customClass || "") !== (selectedResult.customClass || "")) {
-              return false;
-            }
-            
-            // Check if the dogs match exactly
-            const entrantDogNames = Array.isArray(entrant.associatedDog) 
-              ? entrant.associatedDog.map((dog: any) => dog.name).sort().join(",")
-              : "";
-            
-            return driverDogNames === entrantDogNames;
-          });
-          
-          // If no exact match found for weight pull, this will be a new entrant
-          console.log(`Weight pull entrant lookup for ${driver.name} with dogs [${driverDogNames}]: ${existingEntrant ? 'Found existing' : 'Creating new'}`);
-        } else {
-          // For non-weight pull races, find by driver name **and exact dog set**.
-          // For heated races also require the heat to match — otherwise two cards
-          // for the same musher/dogs (one per heat) both resolve to the same
-          // document and the second save overwrites the first heat's data.
-          const driverDogNames = driver.dogs.map((d: Dogs) => d.name).sort().join(',');
-          const driverHeat = raceFormat === 'Heated' ? (driver.heat || selectedHeat) : undefined;
-          existingEntrant = results.find(entrant => {
-            if (entrant.name !== driver.name || entrant.class !== selectedResult.class || (entrant.customClass || '') !== (selectedResult.customClass || '')) return false;
-            if (driverHeat && (entrant.heat || 'Heat 1') !== driverHeat) return false;
-            const entrantDogNames = Array.isArray(entrant.associatedDog) ? entrant.associatedDog.map((d: any) => d.name).sort().join(',') : '';
-            return driverDogNames === entrantDogNames;
-          });
-        }
+        const resolved = resolveEntrantForUpdate(
+          {
+            _id: driver._id,
+            name: driver.name,
+            dogs: driver.dogs.map((dog: Dogs) => ({
+              name: dog.name,
+              NZFSSRegistration: dog.NZFSSRegistration,
+            })),
+            heat: driver.heat,
+            isNew: driver.isNew,
+          },
+          editRowsSnapshot,
+          {
+            className: selectedResult.class,
+            customClass: selectedResult.customClass || "",
+            isHeated: isHeatedSubmit,
+            isWeightPull,
+            selectedHeat,
+          }
+        );
 
-        // Decide whether to create or update based on isNew flag
-        if (!driver.isNew && existingEntrant && existingEntrant._id && /^[0-9a-fA-F]{24}$/.test(existingEntrant._id)) {
+        const existingEntrant = resolved
+          ? results.find((r) => r._id === resolved._id) ||
+            localUpdatedResults.find((r) => r._id === resolved._id)
+          : undefined;
+
+        const driverId = isMongoId(driver._id) ? driver._id : undefined;
+
+        // Decide whether to create or update based on isNew flag / known id
+        if ((!driver.isNew || driverId) && existingEntrant && isMongoId(existingEntrant._id)) {
           // Update existing entrant
           console.log(`Updating existing driver: ${driver.name}`);
           
@@ -1991,7 +2192,7 @@ console.log("editedDrivers", editedDrivers);
             const updatedData = response.data?.updateEntrantDetails;
             if (updatedData) {
               // Find and update the result in our local copy
-              const index = localUpdatedResults.findIndex(r => r._id === existingEntrant._id);
+              const index = localUpdatedResults.findIndex(r => r._id === existingEntrant!._id);
               if (index !== -1) {
                 localUpdatedResults[index] = {
                   ...localUpdatedResults[index],
@@ -2064,6 +2265,11 @@ console.log("editedDrivers", editedDrivers);
         await Promise.all(creationPromises);
       }
 
+      if (orphanDeletePromises.length > 0) {
+        console.log(`Cleaning up ${orphanDeletePromises.length} orphaned duplicate entrants...`);
+        await Promise.all(orphanDeletePromises);
+      }
+
       // If we get here, all mutations were successful
       toast({
         title: "Success",
@@ -2080,7 +2286,9 @@ console.log("editedDrivers", editedDrivers);
         console.log("Refreshing results from server...");
         const { data: freshData } = await refetchResults();
         if (freshData?.getEntrantsByEventId && onResultsUpdate) {
-          onResultsUpdate(freshData.getEntrantsByEventId, true);
+          // The edit form has already closed itself; keep the results list open
+          // so the saved rows can be checked without reopening the event.
+          onResultsUpdate(freshData.getEntrantsByEventId, false);
           
           // Update localStorage with the fresh server data
           if (selectedResult.eventId) {
@@ -2137,7 +2345,9 @@ console.log("editedDrivers", editedDrivers);
         heat: newHeat,
         temperature: "",
         distance: "",
-        class: selectedResult?.class || ""
+        // A heat added while building a new class belongs to that class, not to
+        // whichever class was open for editing before it.
+        class: (showAddClassForm ? selectedRadio : selectedResult?.class) || ""
       }
     ]);
     setSelectedHeat(newHeat);
@@ -2165,8 +2375,10 @@ console.log("editedDrivers", editedDrivers);
       setEditedTemperature(selectedHeatData.temperature || "");
       setEditedDistance(selectedHeatData.distance || "");
       
-      // Also update the selectedResult if we have one
-      if (selectedResult && onResultsUpdate && results) {
+      // Also update the selectedResult if we have one. Never while building a
+      // new class — selectedResult is then still the class opened before it,
+      // and its conditions would be rewritten by an unrelated class's heats.
+      if (!showAddClassForm && selectedResult && onResultsUpdate && results) {
         // Update the main heat selection 
         const updatedResults = results.map(result => {
           if (result._id === selectedResult._id) {
@@ -2201,8 +2413,9 @@ console.log("editedDrivers", editedDrivers);
       }
     }
     
-    // If we're editing a result with onResultsUpdate available, update the local state
-    if (selectedResult && onResultsUpdate && results) {
+    // If we're editing a result with onResultsUpdate available, update the local
+    // state. Skipped while building a new class, for the same reason as above.
+    if (!showAddClassForm && selectedResult && onResultsUpdate && results) {
       // Update the result's heat data
       const updatedResults = results.map(result => {
         if (result._id === selectedResult._id) {
@@ -2249,18 +2462,26 @@ console.log("editedDrivers", editedDrivers);
     }
   }
 
+  // Held in refs so the refresh below runs when the modal opens and not on
+  // every render of the parent — it hands results back up, and the parent
+  // rebuilds both callbacks each render, which would otherwise loop.
+  const refetchResultsRef = useRef(refetchResults);
+  const onResultsUpdateRef = useRef(onResultsUpdate);
+  useEffect(() => {
+    refetchResultsRef.current = refetchResults;
+    onResultsUpdateRef.current = onResultsUpdate;
+  });
+
   // Ensure the modal properly refreshes data when opened
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && modalEventId) {
       // Refresh data when the modal opens
       const refreshData = async () => {
         try {
-          const { data: refreshedData } = await refetchResults();
+          const { data: refreshedData } = await refetchResultsRef.current();
           if (refreshedData && refreshedData.getEntrantsByEventId) {
             // Make sure we have the latest data
-            if (onResultsUpdate) {
-              onResultsUpdate(refreshedData.getEntrantsByEventId, false);
-            }
+            onResultsUpdateRef.current?.(refreshedData.getEntrantsByEventId, false);
           }
         } catch (error) {
           console.error("Error refreshing data:", error);
@@ -2272,7 +2493,7 @@ console.log("editedDrivers", editedDrivers);
       // Reset expanded state when opening modal
       setExpandedResult(null);
     }
-  }, [isOpen, refetchResults, onResultsUpdate]);
+  }, [isOpen, modalEventId]);
 
   // Add this debugging log to track heats loaded from the API
   useEffect(() => {
@@ -2316,10 +2537,17 @@ console.log("editedDrivers", editedDrivers);
                     setCustomClass(""); // <-- reset to empty string
                     setShowCustomClassInput(false); // <-- reset to false
                     setEditedDrivers([]);
+                    setOriginalEditedDrivers([]);
                     setEditedTemperature("");
                     setEditedDistance("");
                     setEditedStartTime("");
                     setRaceFormat("Single");
+                    // Heats belong to the class being built. Without this reset
+                    // the heats of a class edited earlier in the session leak in,
+                    // and drivers get filed under a heat this class never had.
+                    setHeats([{ heat: "Heat 1", temperature: "", distance: "" }]);
+                    setSelectedHeat("Heat 1");
+                    setEditingDriverIndex(null);
                   }}
                   className="flex items-center gap-2"
                 >
@@ -2454,7 +2682,13 @@ console.log("editedDrivers", editedDrivers);
                                               (r.customClass || "") ===
                                                 (result.customClass || "")
                                           );
-                                          const ranks = computeMusherRanks(classDrivers);
+                                          const ranks = computeMusherRanks(
+                                            classDrivers.map((r) => ({
+                                              name: r.name,
+                                              raceTime: r.raceTime,
+                                              raceType: r.raceType || "",
+                                            }))
+                                          );
                                           const classKey = `${result.class}-${result.customClass || ""}`;
                                           const rows = classDrivers.map((driver) => ({
                                             _id: driver._id,
@@ -2465,7 +2699,7 @@ console.log("editedDrivers", editedDrivers);
                                               name: driver.name,
                                               raceTime: driver.raceTime,
                                               heat: driver.heat,
-                                              raceType: driver.raceType,
+                                              raceType: driver.raceType || "",
                                               class: driver.class,
                                               customClass: driver.customClass || "",
                                               dogWeight: driver.dogWeight,
@@ -2706,7 +2940,10 @@ console.log("editedDrivers", editedDrivers);
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setShowAddDriverModal(true)}
+                      onClick={() => {
+                        setEditingDriverIndex(null);
+                        setShowAddDriverModal(true);
+                      }}
                       className="flex items-center gap-2"
                     >
                       <svg
@@ -3167,7 +3404,7 @@ console.log("editedDrivers", editedDrivers);
       )}
 
       {showAddClassForm && (
-        <Dialog open={showAddClassForm} onOpenChange={() => setShowAddClassForm(false)}>
+        <Dialog open={showAddClassForm} onOpenChange={handleCloseAddClassForm}>
           <DialogContent className="max-w-[900px] p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
             <DialogHeader className="p-6 pb-4">
               <DialogTitle className="text-xl font-semibold">
@@ -3338,7 +3575,10 @@ console.log("editedDrivers", editedDrivers);
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setShowAddDriverModal(true)}
+                      onClick={() => {
+                        setEditingDriverIndex(null);
+                        setShowAddDriverModal(true);
+                      }}
                       className="flex items-center gap-2"
                     >
                       <svg
@@ -3397,6 +3637,17 @@ console.log("editedDrivers", editedDrivers);
                               />
                             </svg>
                           </button>
+
+                        {/* A heated class holds one card per heat, so the same
+                            musher can appear more than once — say which heat
+                            this card is for. */}
+                        {raceFormat === 'Heated' && (
+                          <div>
+                            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                              {driver.heat || selectedHeat}
+                            </span>
+                          </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-4">
                           <div>
@@ -3782,7 +4033,7 @@ console.log("editedDrivers", editedDrivers);
                 <div className="flex justify-end gap-4">
                   <Button
                     variant="outline"
-                    onClick={() => setShowAddClassForm(false)}
+                    onClick={handleCloseAddClassForm}
                   >
                     Cancel
                   </Button>
@@ -3810,6 +4061,38 @@ console.log("editedDrivers", editedDrivers);
                         return;
                       }
 
+                      // A musher is one entrant per class, or one per heat when
+                      // heated. Two cards sharing that identity would overwrite
+                      // each other on save and only one would survive, so say so
+                      // here rather than silently dropping an entry.
+                      const newClassContext = {
+                        raceFormat: raceFormat || "Single",
+                        className: selectedRadio,
+                        customClass: customClass || "",
+                        heats,
+                        selectedHeat,
+                        fallbackTemperature: editedTemperature,
+                        fallbackDistance: editedDistance,
+                      };
+
+                      const collisions = findCollidingDriverCards(
+                        editedDrivers.map((d) => ({ name: d.name, heat: d.heat })),
+                        newClassContext
+                      );
+
+                      if (collisions.length > 0) {
+                        const [first] = collisions;
+                        toast({
+                          title: "Duplicate entry",
+                          description:
+                            raceFormat === "Heated"
+                              ? `${first[0].name} is entered twice in ${first[0].heat || selectedHeat}. Move one entry to another heat or remove it.`
+                              : `${first[0].name} is entered twice in this class. Remove the duplicate entry.`,
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
                       // Create a copy of the original results for potential rollback
                       const originalResults = [...results];
                       let optimisticResults: Result[] = [];
@@ -3826,13 +4109,17 @@ console.log("editedDrivers", editedDrivers);
                             // Add optimistic entries for each driver in the new class
                             editedDrivers.forEach(driver => {
                               const driverRaceType = driver.raceStatus.toLowerCase();
+                              const conditions = buildNewClassConditions(
+                                { name: driver.name, heat: driver.heat },
+                                newClassContext
+                              );
                               const optimisticEntry: Result = {
                                 _id: `temp-${uuidv4()}`, // Temporary ID for optimistic update
                                 class: selectedRadio,
                                 customClass: customClass || "",
                                 raceFormat: raceFormat || "Single",
-                                temperature: editedTemperature || "",
-                                distance: editedDistance || "",
+                                temperature: conditions.temperature,
+                                distance: conditions.distance,
                                 startTime: editedStartTime || "00:00:00.00",
                                 name: driver.name,
                                 raceTime: driver.raceStatus === "Started" ? driver.raceTime : null,
@@ -3850,17 +4137,14 @@ console.log("editedDrivers", editedDrivers);
                                 ...(driver.weightPulled ? { weightPulled: driver.weightPulled } : {}),
                               };
 
-                              // Add heat data for heated races
-                              if (raceFormat === 'Heated') {
-                                optimisticEntry.heat = selectedHeat;
-                                optimisticEntry.heatsData = heats.map(heat => ({
-                                  heat: heat.heat,
-                                  temperature: heat.temperature || '',
-                                  distance: heat.distance || '',
-                                  class: `${selectedRadio}:${customClass || ''}`,
-                                  __typename: "HeatData"
-                                }));
-                              }
+                              // Each card keeps the heat it was entered under —
+                              // reading the selector here put every driver in
+                              // whichever heat happened to be open.
+                              optimisticEntry.heat = conditions.heat;
+                              optimisticEntry.heatsData = conditions.heatsData.map(heat => ({
+                                ...heat,
+                                __typename: "HeatData"
+                              }));
 
                               optimisticResults.push(optimisticEntry);
                             });
@@ -3900,12 +4184,19 @@ console.log("editedDrivers", editedDrivers);
                               return {
                                 name: dog.name,
                                 driverName: driver.name,
-                                // Add required fields with data from musher if available
-                                NZFSSRegistration: dogDetails?.nzfssNo || "Unknown",
-                                dob: dogDetails?.dateOfBirth || "2000-01-01", // Default date if missing
-                                breed: dogDetails?.breed || "Unknown",
+                                // The number entered on the form wins: a dog typed
+                                // in by hand is not in the registry, so a name
+                                // lookup alone would discard its registration.
+                                NZFSSRegistration: resolveDogRegistration(dog, dogDetails),
+                                dob: dog.dob || dogDetails?.dateOfBirth || "2000-01-01", // Default date if missing
+                                breed: dog.breed || dogDetails?.breed || "Unknown",
                               };
                             }
+                          );
+
+                          const conditions = buildNewClassConditions(
+                            { name: driver.name, heat: driver.heat },
+                            newClassContext
                           );
 
                           // Create the input object with eventId for new class
@@ -3926,13 +4217,13 @@ console.log("editedDrivers", editedDrivers);
                             weightPulled?: string;
                           } = {
                             name: driver.name,
-                            raceFormat: raceFormat || "",
+                            raceFormat: raceFormat || "Single",
                             class: selectedRadio,
                             customClass: customClass,
                             associatedDog: associatedDog,
                             raceType: driver.raceStatus.toLowerCase(), // Use the exact race status that was selected
-                            temperature: editedTemperature || "",
-                            distance: editedDistance || "",
+                            temperature: conditions.temperature,
+                            distance: conditions.distance,
                             eventId: results[0].eventId,
                             ...(driver.raceTime && driver.raceTime.trim() !== "" ? { raceTime: driver.raceTime } : {}),
                             // Add weight pull data if available
@@ -3940,21 +4231,16 @@ console.log("editedDrivers", editedDrivers);
                             ...(driver.weightPulled ? { weightPulled: driver.weightPulled } : {}),
                           };
 
-                          // Add heat data for heated races
-                          if (raceFormat === 'Heated') {
-                            // Include the currently selected heat
-                            driverData.heat = selectedHeat;
-                            
-                            // Include heats data if available
-                            if (heats && Array.isArray(heats) && heats.length > 0) {
-                              driverData.heatsData = heats.map(heat => ({
-                                heat: heat.heat,
-                                temperature: heat.temperature || '',
-                                distance: heat.distance || '',
-                                class: `${selectedRadio}:${customClass || ''}`
-                              }));
-                            }
-                          }
+                          // A heated entrant's identity is musher + class + heat,
+                          // so the heat has to be the one this card was entered
+                          // under. Stamping the selected heat on every card made
+                          // Heat 2 overwrite Heat 1 on the server.
+                          //
+                          // A single-format class is stamped Heat 1 rather than
+                          // left blank — a row with no heat is rendered as an
+                          // unnamed extra run in the results table.
+                          driverData.heat = conditions.heat;
+                          driverData.heatsData = conditions.heatsData;
 
                           console.log(
                             "Driver data for creating new class:",
@@ -4033,7 +4319,7 @@ console.log("editedDrivers", editedDrivers);
                         });
                         
                         // Close the add class form but keep the main modal open
-                        setShowAddClassForm(false);
+                        handleCloseAddClassForm();
                         
                         // Refresh data from server to get the actual IDs
                         try {

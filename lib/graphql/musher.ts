@@ -38,6 +38,24 @@ export const GET_MUSHERS = gql`
   }
 `;
 
+/**
+ * Just enough of the registry to decide who is NZFSS-registered. Scoring only
+ * needs the name and the registration number, so contact details and dogs are
+ * left out rather than pulled onto the results screen.
+ *
+ * Not getMushers: that query drops mushers whose club reference no longer
+ * resolves, which would score a registered musher at zero.
+ */
+export const GET_MUSHER_REGISTRATIONS = gql`
+  query GetMusherRegistrations {
+    getMusherRegistrations {
+      id
+      name
+      registrationNo
+    }
+  }
+`;
+
 export const GET_MUSHER_BY_ID = gql`
   query GetMusherById($id: ID!) {
     getMusherById(id: $id) {

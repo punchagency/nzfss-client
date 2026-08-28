@@ -17,6 +17,15 @@ import { toast } from "sonner";
 import { useTab } from "@/context/tab_context";
 import { classEarnsPoints } from "@/lib/class-eligibility";
 import { buildMusherHeatGroups, dogKey, isFinishedRun, musherKey } from "@/lib/heat-scoring";
+import { GET_MUSHER_REGISTRATIONS } from "@/lib/graphql/musher";
+import {
+  buildMusherRegistryIndex,
+  isRegisteredDog,
+  isRegisteredMusher,
+  isRegistryLoaded,
+  musherRegistrationStatus,
+  type RegistryMusher,
+} from "@/lib/nzfss-registration";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -203,6 +212,29 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     }
   });
 
+  // The registry decides who is NZFSS-registered, and only registered drivers
+  // earn musher points. Scoring is blocked while this is unavailable rather
+  // than scoring everyone as unregistered.
+  const {
+    loading: mushersLoading,
+    data: mushersData,
+    refetch: refetchMushers,
+  } = useQuery(GET_MUSHER_REGISTRATIONS, {
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true,
+    onError: (error) => {
+      console.error("Error fetching musher registrations:", error);
+    }
+  });
+
+  const musherRegistry = useMemo(
+    () => buildMusherRegistryIndex(mushersData?.getMusherRegistrations as RegistryMusher[] | undefined),
+    [mushersData]
+  );
+
+  /** True once the registry is loaded, so registration can actually be checked. */
+  const registryReady = isRegistryLoaded(musherRegistry);
+
   // Add effect to refetch data when component mounts or becomes visible
   useEffect(() => {
     const refetchAllData = async () => {
@@ -211,7 +243,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
           refetchResults(),
           refetchEvents(),
           refetchClub(),
-          refetchPoints()
+          refetchPoints(),
+          refetchMushers()
         ]);
       } catch (error) {
         console.error("Error refetching data:", error);
@@ -235,7 +268,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isClient, refetchResults, refetchEvents, refetchClub, refetchPoints]);
+  }, [isClient, refetchResults, refetchEvents, refetchClub, refetchPoints, refetchMushers]);
 
   // Safe localStorage access (kept for compatibility but no longer used for submission tracking)
   const getLocalStorageItem = (key: string): string | null => {
@@ -612,11 +645,10 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
       entrant.customClass?.toLowerCase().includes('weight') ||
       entrant.customClass?.toLowerCase().includes('pull');
 
-    // A musher is registered unless their name indicates they are unregistered
-    // Non-registered mushers get 0 points but are still counted in ranking calculations
-    const isRegisteredMusher = !entrant.name.toLowerCase().includes('unregistered') && 
-                              !entrant.name.toLowerCase().includes('non-registered') &&
-                              !entrant.name.toLowerCase().includes('nonregistered');
+    // Only drivers holding an NZFSS registration earn musher points. A driver
+    // typed straight onto a result without a matching registry record is
+    // unregistered: they score 0, but still count in the ranking calculations.
+    const isRegisteredDriver = isRegisteredMusher(entrant.name, musherRegistry);
 
     // Check if this is a junior class (no points for junior classes)
     const isJuniorClass = 
@@ -653,11 +685,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
         name: e.name,
         weightPulled: parseFloat(e.weightPulled || '0'),
         time: getRaceTime(e) ? timeToSeconds(getRaceTime(e) || '') : Number.MAX_VALUE,
-        isRegistered: Array.isArray(e.associatedDog) && e.associatedDog.some(dog =>
-          dog.NZFSSRegistration &&
-          dog.NZFSSRegistration.trim() !== '' &&
-          dog.NZFSSRegistration.toLowerCase() !== 'unknown'
-        )
+        isRegistered: Array.isArray(e.associatedDog) && e.associatedDog.some(isRegisteredDog)
       })).sort((a, b) => {
         // First sort by weight pulled (highest first)
         if (Math.abs(b.weightPulled - a.weightPulled) < 0.001) {
@@ -709,7 +737,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
       // Musher points based on actual rank within class
       // Points = total valid entrants in class - rank + 1
       const calculatedPoints = validEntrants.length - actualRank + 1;
-      const points = isRegisteredMusher ? calculatedPoints : 0;
+      const points = isRegisteredDriver ? calculatedPoints : 0;
 
       return { points, cutoffTime: '', dogPoints: {} };
     }
@@ -753,7 +781,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
     // Calculate musher points using Annual Musher System based on actual rank
     const calculatedPoints = Math.max(1, rankedGroups.length - actualRank + 1);
-    const points = isRegisteredMusher ? calculatedPoints : 0;
+    const points = isRegisteredDriver ? calculatedPoints : 0;
 
     // Calculate cutoff time for dog points (winning time * 1.25)
     const winningTime = rankedGroups[0].totalSeconds;
@@ -769,17 +797,13 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
     for (const row of ownGroup.rows) {
       for (const dog of row.associatedDog || []) {
-        const isRegisteredDog = dog.NZFSSRegistration &&
-                               dog.NZFSSRegistration.trim() !== '' &&
-                               dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-
         // A dog dropped from one of the heats earns nothing, even though the
         // team it ran with may still score.
         const ranEveryHeat = ownGroup.qualifyingDogKeys.has(dogKey(dog));
 
         let dogPointValue: number = 0;
 
-        if (isRegisteredDog && ranEveryHeat) {
+        if (isRegisteredDog(dog) && ranEveryHeat) {
           if (isFirstPlace) {
             // First place gets 10 points
             dogPointValue = 10;
@@ -797,10 +821,13 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
           }
         }
 
-        // Store the calculated points (use dog name as key if no registration)
-        const key = dog.NZFSSRegistration || dog.name;
-        if (key) {
-          dogPoints[key] = dogPointValue;
+        // Store under registration and name so submit/display lookups agree
+        // even when one path keys by name and the other by NZFSS number.
+        if (dog.NZFSSRegistration) {
+          dogPoints[dog.NZFSSRegistration] = dogPointValue;
+        }
+        if (dog.name) {
+          dogPoints[dog.name] = dogPointValue;
         }
       }
     }
@@ -908,12 +935,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
     if (entrant.associatedDog && Array.isArray(entrant.associatedDog)) {
       entrant.associatedDog.forEach(dog => {
-        const isRegistered = dog.NZFSSRegistration &&
-          dog.NZFSSRegistration.trim() !== '' &&
-          dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-
         // Only award points if the dog is registered AND ratio >= 10
-        dogPoints[dog.NZFSSRegistration] = (isRegistered && ratio >= 10) ? totalPoints : 0;
+        dogPoints[dog.NZFSSRegistration] = (isRegisteredDog(dog) && ratio >= 10) ? totalPoints : 0;
       });
     }
 
@@ -924,6 +947,17 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
   const handleSubmitPoints = async (entrantsToSubmit: Entrant[]): Promise<void> => {
     if (isSubmitting) return;
+
+    // Without the registry every driver would look unregistered and the whole
+    // class would be written away at zero points. Refuse rather than do that.
+    if (!registryReady) {
+      toast.error(
+        mushersLoading
+          ? "Still loading the musher registry — try again in a moment"
+          : "Cannot load the musher registry, so registration cannot be checked. Points not submitted."
+      );
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -1022,19 +1056,20 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
         
         if (entrant.associatedDog && Array.isArray(entrant.associatedDog)) {
           for (const dog of entrant.associatedDog) {
-            const isRegistered = dog.NZFSSRegistration && 
-                               typeof dog.NZFSSRegistration === 'string' &&
-                               dog.NZFSSRegistration.trim() !== '' && 
-                               dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-            
             // Only include registered dogs in the submission
-            if (!isRegistered) {
+            if (!isRegisteredDog(dog)) {
               continue;
             }
 
             // Get the dog points from the calculation using the key we used
-            const dogKey = dog.NZFSSRegistration;
-            const calculatedPoints = dogPoints[dogKey];
+            const dogKey =
+              (dog.NZFSSRegistration && dogPoints[dog.NZFSSRegistration] !== undefined
+                ? dog.NZFSSRegistration
+                : undefined) ||
+              (dog.name && dogPoints[dog.name] !== undefined ? dog.name : undefined) ||
+              dog.NZFSSRegistration ||
+              dog.name;
+            const calculatedPoints = dogKey ? dogPoints[dogKey] : undefined;
 
             // Use the calculated points if available and valid, otherwise 0
             const finalPoints = (typeof calculatedPoints === 'number' && !isNaN(calculatedPoints)) 
@@ -1752,6 +1787,18 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                             entrant.class?.toLowerCase().includes('bike') ||
                                             entrant.customClass?.toLowerCase().includes('bike');
 
+                                          // Shown next to the musher points so a zero from a
+                                          // missing registration is obvious before submitting,
+                                          // and says which fix it needs: a registration number
+                                          // on the musher record, or a corrected driver name.
+                                          const driverNote = !registryReady
+                                            ? ' (musher registry unavailable)'
+                                            : {
+                                                'registered': '',
+                                                'no-registration-number': ' (no NZFSS registration number on this musher)',
+                                                'not-in-registry': ' (not in the musher registry)',
+                                              }[musherRegistrationStatus(entrant.name, musherRegistry)];
+
                                           if (isWeightpull) {
                                             // For weightpull events, calculate musher points within class
                                             const musherResult = calculatePoints(entrant, entrants);
@@ -1783,14 +1830,12 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                               <div className="mt-1" key="weightpull-points">
                                                 <div className="font-medium mb-1">Points Preview:</div>
                                                 <div className="ml-2">
-                                                  <div>Musher Points (within class): {musherPoints > 0 ? musherPoints : '-'}</div>
+                                                  <div>Musher Points (within class): {musherPoints > 0 ? musherPoints : '-'}{driverNote}</div>
                                                   <div className="mt-2">Dog Points (across all classes):</div>
                                                   {entrant.associatedDog.map((dog, idx) => {
                                                     const dogPointValue = dog.NZFSSRegistration ? weightpullResult.dogPoints[dog.NZFSSRegistration] : undefined;
-                                                    const isRegistered = !!dog.NZFSSRegistration && 
-                                                                      dog.NZFSSRegistration.trim() !== '' &&
-                                                                      dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-                                                    const ratio = entrant.dogWeight && entrant.weightPulled ? 
+                                                    const isRegistered = isRegisteredDog(dog);
+                                                    const ratio = entrant.dogWeight && entrant.weightPulled ?
                                                       (parseFloat(entrant.weightPulled) / parseFloat(entrant.dogWeight)).toFixed(1) : '0';
                                                     
                                                     return (
@@ -1822,7 +1867,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                             
                                             return (
                                               <div className="mt-1" key="musher-points">
-                                                <div className="font-medium">Musher Points: {musherPoints > 0 ? musherPoints : '-'}</div>
+                                                <div className="font-medium">Musher Points: {musherPoints > 0 ? musherPoints : '-'}{driverNote}</div>
                                                 <div className="text-xs text-gray-500 ml-2">
                                                   (Based on Annual Musher System: t = n + 1)
                                                 </div>
@@ -1834,10 +1879,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                                     {entrant.associatedDog.map((dog, idx) => {
                                                       const dogKey = dog.NZFSSRegistration || dog.name;
                                                       const dogPointValue = dogPoints[dogKey];
-                                                      const isRegistered = !!dog.NZFSSRegistration && 
-                                                                        dog.NZFSSRegistration.trim() !== '' &&
-                                                                        dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-                                                      
+                                                      const isRegistered = isRegisteredDog(dog);
+
                                                       return (
                                                         <div key={idx} className="ml-2 text-xs text-gray-600">
                                                           {dog.name}: {dogPointValue !== undefined ? dogPointValue : '-'} points
@@ -1861,7 +1904,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                           
                                           return (
                                             <div className="mt-1" key="fallback-points">
-                                              <div className="font-medium">Musher Points: {musherPoints > 0 ? musherPoints : '-'}</div>
+                                              <div className="font-medium">Musher Points: {musherPoints > 0 ? musherPoints : '-'}{driverNote}</div>
                                               
                                               {/* Dog Points Display */}
                                               {entrant.associatedDog && entrant.associatedDog.length > 0 && (
@@ -1870,10 +1913,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                                   {entrant.associatedDog.map((dog, idx) => {
                                                     const dogKey = dog.NZFSSRegistration || dog.name;
                                                     const dogPointValue = dogPoints[dogKey];
-                                                    const isRegistered = !!dog.NZFSSRegistration && 
-                                                                      dog.NZFSSRegistration.trim() !== '' &&
-                                                                      dog.NZFSSRegistration.toLowerCase() !== 'unknown';
-                                                    
+                                                    const isRegistered = isRegisteredDog(dog);
+
                                                     return (
                                                       <div key={idx} className="ml-2 text-xs text-gray-600">
                                                         {dog.name}: {dogPointValue !== undefined ? dogPointValue : '-'} points

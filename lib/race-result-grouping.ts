@@ -61,6 +61,21 @@ export function musherKey(name: string): string {
   return name.trim().toLowerCase();
 }
 
+function mergeDogPoints(
+  a: { NZFSSRegistration: string; points: number }[],
+  b: { NZFSSRegistration: string; points: number }[]
+): { NZFSSRegistration: string; points: number }[] {
+  const byReg = new Map<string, { NZFSSRegistration: string; points: number }>();
+  for (const dp of [...a, ...b]) {
+    if (!dp?.NZFSSRegistration) continue;
+    const existing = byReg.get(dp.NZFSSRegistration);
+    if (!existing || dp.points > existing.points) {
+      byReg.set(dp.NZFSSRegistration, dp);
+    }
+  }
+  return Array.from(byReg.values());
+}
+
 function hasValidFinish(raceType: string): boolean {
   const status = raceType?.toLowerCase() || '';
   return !['did not start', 'did not finish', 'disqualified', 'did not qualify'].includes(
@@ -123,7 +138,7 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
   for (const row of rows) {
     const key = musherKey(row.entrant.name);
     const secs = timeToSeconds(row.entrant.raceTime || '');
-    const heatLabel = row.entrant.heat?.trim() || `Run ${(map.get(key)?.heats.length ?? 0) + 1}`;
+    const heatLabel = row.entrant.heat?.trim() || "Heat 1";
 
     const heatRun: HeatRun = {
       entrantId: row._id,
@@ -146,9 +161,31 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
       continue;
     }
 
-    existing.heats.push(heatRun);
-    if (secs < Number.MAX_VALUE) {
-      existing.totalSeconds += secs;
+    // Prefer the row with the fullest dog team / dog-points payload so a
+    // partial legacy duplicate does not hide dogs added later.
+    const existingDogCount = existing.entrant.associatedDog?.length || 0;
+    const nextDogCount = row.entrant.associatedDog?.length || 0;
+    if (nextDogCount > existingDogCount || (nextDogCount === existingDogCount && row.dogPoints.length > existing.dogPoints.length)) {
+      existing.entrant = row.entrant;
+      existing.dogPoints = mergeDogPoints(existing.dogPoints, row.dogPoints);
+    } else {
+      existing.dogPoints = mergeDogPoints(existing.dogPoints, row.dogPoints);
+    }
+
+    // Same heat label more than once is a corrupted duplicate — keep one.
+    const sameHeatIdx = existing.heats.findIndex((h) => h.heat === heatLabel);
+    if (sameHeatIdx >= 0) {
+      existing.heats[sameHeatIdx] = heatRun;
+      // Recalculate total from unique heats only
+      existing.totalSeconds = existing.heats.reduce((sum, h) => {
+        const t = timeToSeconds(h.raceTime);
+        return sum + (t < Number.MAX_VALUE ? t : 0);
+      }, 0);
+    } else {
+      existing.heats.push(heatRun);
+      if (secs < Number.MAX_VALUE) {
+        existing.totalSeconds += secs;
+      }
     }
     existing.points = Math.max(existing.points, row.points);
   }
