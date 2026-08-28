@@ -17,6 +17,7 @@ import {
   isHeatedFormat,
   isMongoId,
   isWeightPullClass,
+  planDriverDeletions,
   planOrphanCleanup,
   resolveEntrantForUpdate,
 } from "@/lib/result-edit-matching";
@@ -1934,58 +1935,36 @@ console.log("editedDrivers", editedDrivers);
         customClass || selectedResult.customClass
       );
 
-      const currentDriverIds = new Set(
-        editedDrivers
-          .map((d) => d._id)
-          .filter((id): id is string => isMongoId(id))
-      );
-      const driversToDelete = originalEditedDrivers.filter((original) => {
-        if (isMongoId(original._id)) {
-          return !currentDriverIds.has(original._id);
-        }
-        // Legacy cards without an id: fall back to name (+ heat for heated)
-        return !editedDrivers.some(
-          (current) =>
-            current.name === original.name &&
-            (!isHeatedSubmit || (current.heat || 'Heat 1') === (original.heat || 'Heat 1'))
-        );
-      });
-
-      console.log(`Processing ${editedDrivers.length} drivers (${driversToDelete.length} to delete)`);
-
-      // Delete removed drivers — also delete any legacy duplicate rows that
-      // were collapsed out of the edit form so they cannot reappear on refetch.
+      // Delete removed drivers — also any legacy duplicate rows that were
+      // collapsed out of the edit form, so they cannot reappear on refetch.
+      // Rows still owned by a card on the form are never swept up, or removing
+      // one weight-pull entry would delete every entry for that musher.
       const classRowsForDelete = results.filter(
         (r) =>
           r.class === selectedResult.class &&
           (r.customClass || "") === (selectedResult.customClass || "")
       );
 
-      for (const driverToDelete of driversToDelete) {
-        const idsToRemove = new Set<string>();
+      const idsToDelete = planDriverDeletions(
+        originalEditedDrivers.map((d) => ({ _id: d._id, name: d.name, heat: d.heat })),
+        editedDrivers.map((d) => ({ _id: d._id, name: d.name, heat: d.heat })),
+        classRowsForDelete.map((r) => ({
+          _id: r._id,
+          name: r.name,
+          class: r.class,
+          customClass: r.customClass,
+          heat: r.heat,
+          raceFormat: r.raceFormat,
+        })),
+        { isHeated: isHeatedSubmit, isWeightPull: isWeightPullSubmit }
+      );
 
-        if (isMongoId(driverToDelete._id)) {
-          idsToRemove.add(driverToDelete._id);
-        }
+      console.log(`Processing ${editedDrivers.length} drivers (${idsToDelete.size} rows to delete)`);
 
-        for (const entrant of classRowsForDelete) {
-          if (entrant.name !== driverToDelete.name) continue;
-          if (
-            isHeatedSubmit &&
-            (entrant.heat || "Heat 1") !== (driverToDelete.heat || "Heat 1")
-          ) {
-            continue;
-          }
-          if (isMongoId(entrant._id)) idsToRemove.add(entrant._id);
-        }
-
-        for (const entrantId of idsToRemove) {
-          deletePromises.push(
-            deleteEntrant({ variables: { entrantId } })
-          );
-          deletedIds.push(entrantId);
-          hasUpdatedResults = true;
-        }
+      for (const entrantId of idsToDelete) {
+        deletePromises.push(deleteEntrant({ variables: { entrantId } }));
+        deletedIds.push(entrantId);
+        hasUpdatedResults = true;
       }
 
       // Remove deleted entries from local results immediately

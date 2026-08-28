@@ -314,3 +314,64 @@ export function simulateAddDogAndSubmit(args: {
         : row
     );
 }
+
+export interface DeletionPlanCard {
+  _id?: string;
+  name: string;
+  heat?: string;
+}
+
+/**
+ * Which entrant rows a save should delete.
+ *
+ * A card removed from the form takes its own row with it, plus any legacy
+ * duplicate rows for the same musher (+ heat when heated) that the edit form
+ * collapsed out of view — those would otherwise reappear on the next refetch.
+ *
+ * Two kinds of row are never swept up by that name match. One still owned by a
+ * card left on the form: removing one entry must not delete the ones kept.
+ * And any row in a weight-pull class, where the same musher legitimately holds
+ * one row per dog entry, so the name does not identify which entry was removed.
+ */
+export function planDriverDeletions(
+  originalDrivers: DeletionPlanCard[],
+  currentDrivers: DeletionPlanCard[],
+  classRows: EditEntrantRow[],
+  opts: { isHeated: boolean; isWeightPull: boolean }
+): Set<string> {
+  const keptIds = new Set(
+    currentDrivers.map((d) => d._id).filter((id): id is string => isMongoId(id))
+  );
+
+  const removed = originalDrivers.filter((original) => {
+    if (isMongoId(original._id)) return !keptIds.has(original._id);
+    // Legacy cards without an id: fall back to name (+ heat for heated)
+    return !currentDrivers.some(
+      (current) =>
+        current.name === original.name &&
+        (!opts.isHeated || heatOf(current.heat) === heatOf(original.heat))
+    );
+  });
+
+  const ids = new Set<string>();
+
+  for (const driver of removed) {
+    if (isMongoId(driver._id)) ids.add(driver._id);
+
+    // Weight pull is keyed by the row itself, never by musher name.
+    if (opts.isWeightPull) continue;
+
+    for (const row of classRows) {
+      if (row.name !== driver.name) continue;
+      if (!isMongoId(row._id)) continue;
+      if (keptIds.has(row._id)) continue;
+      if (opts.isHeated && heatOf(row.heat) !== heatOf(driver.heat)) continue;
+      ids.add(row._id);
+    }
+  }
+
+  // Never delete a row that a surviving card still owns.
+  for (const id of keptIds) ids.delete(id);
+
+  return ids;
+}

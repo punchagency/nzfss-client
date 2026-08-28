@@ -12,6 +12,7 @@ import {
   dedupeEntrantsForEdit,
   findDriverCardToUpdate,
   findOrphanEntrants,
+  planDriverDeletions,
   planOrphanCleanup,
   resolveEntrantForUpdate,
   simulateAddDogAndSubmit,
@@ -416,6 +417,62 @@ for (let run = 1; run <= 10; run++) {
     );
     assert.equal(keepIds.size, 2);
     assert.equal(orphanIds.size, 0);
+  });
+
+  check(`run ${run}: removing one weight-pull entry keeps the musher's other entries`, () => {
+    // Eric: "deleting drivers only works sometimes ... when you try to delete
+    // multiple driver entries". Weight pull holds one row per dog entry, so a
+    // name sweep deleted every entry the musher had in the class.
+    const rows = [
+      makeRow(`m${run}1`, [ROGUE], { customClass: "Unlimited Class", class: "weight pull" }),
+      makeRow(`m${run}2`, [JUGGERNAUT], { customClass: "Unlimited Class", class: "weight pull" }),
+      makeRow(`m${run}3`, [ROGUE], { customClass: "Unlimited Class", class: "weight pull" }),
+    ];
+    const original = rows.map((r) => ({ _id: r._id, name: r.name, heat: r.heat }));
+    const current = [original[0], original[2]]; // middle entry removed
+
+    const ids = planDriverDeletions(original, current, rows, {
+      isHeated: false,
+      isWeightPull: true,
+    });
+
+    assert.equal(ids.size, 1, "only the removed entry is deleted");
+    assert.ok(ids.has(rows[1]._id));
+    assert.equal(ids.has(rows[0]._id), false, "kept entry must survive");
+    assert.equal(ids.has(rows[2]._id), false, "kept entry must survive");
+  });
+
+  check(`run ${run}: removing a driver still clears its legacy duplicate rows`, () => {
+    const rows = [
+      makeRow(`n${run}1`, [ROGUE]),
+      makeRow(`n${run}2`, [ROGUE]), // legacy duplicate collapsed out of the form
+    ];
+    const original = [{ _id: rows[0]._id, name: rows[0].name, heat: "Heat 1" }];
+
+    const ids = planDriverDeletions(original, [], rows, {
+      isHeated: false,
+      isWeightPull: false,
+    });
+
+    assert.equal(ids.size, 2, "both the row and its duplicate go");
+  });
+
+  check(`run ${run}: deleting a heated driver leaves the other heat alone`, () => {
+    const heat1 = makeRow(`o${run}1`, [ROGUE], { heat: "Heat 1", raceFormat: "Heated" });
+    const heat2 = makeRow(`o${run}2`, [ROGUE], { heat: "Heat 2", raceFormat: "Heated" });
+    const original = [
+      { _id: heat1._id, name: heat1.name, heat: "Heat 1" },
+      { _id: heat2._id, name: heat2.name, heat: "Heat 2" },
+    ];
+
+    const ids = planDriverDeletions(original, [original[1]], [heat1, heat2], {
+      isHeated: true,
+      isWeightPull: false,
+    });
+
+    assert.equal(ids.size, 1);
+    assert.ok(ids.has(heat1._id));
+    assert.equal(ids.has(heat2._id), false, "Heat 2 must survive");
   });
 
   check(`run ${run}: add-class keeps each driver in the heat it was entered under`, () => {
