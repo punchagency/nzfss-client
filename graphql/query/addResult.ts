@@ -32,6 +32,7 @@ export const GET_ALL_RESULTS = gql`
       dogWeight
       weightPulled
       createdAt
+      updatedAt
     }
   }
 `;
@@ -92,6 +93,7 @@ export const GET_RESULTS_BY_EVENT_ID = gql`
       dogWeight
       weightPulled
       createdAt
+      updatedAt
     }
   }
 `;

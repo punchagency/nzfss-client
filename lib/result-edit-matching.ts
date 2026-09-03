@@ -375,3 +375,57 @@ export function planDriverDeletions(
 
   return ids;
 }
+
+export interface ScoringDriverCard {
+  _id?: string;
+  name: string;
+  dogs?: EditDog[];
+  heat?: string;
+  raceTime?: string | null;
+  raceStatus?: string;
+  dogWeight?: string;
+  weightPulled?: string;
+}
+
+function driverCardKey(card: ScoringDriverCard): string {
+  return isMongoId(card._id) ? card._id : `${card.name}::${heatOf(card.heat)}`;
+}
+
+function dogTeamSignature(dogs?: EditDog[] | null): string {
+  return (dogs || [])
+    .map((dog) => {
+      const reg = (dog.NZFSSRegistration || "").trim().toLowerCase();
+      if (reg && reg !== "unknown") return `reg:${reg}`;
+      return `name:${(dog.name || "").trim().toLowerCase()}`;
+    })
+    .sort()
+    .join("|");
+}
+
+/**
+ * True when the edit form changed dogs, times, heats or finish status —
+ * the cases that must reappear on Save Results for a points resubmit.
+ */
+export function editRequiresPointsResubmit(
+  original: ScoringDriverCard[],
+  current: ScoringDriverCard[]
+): boolean {
+  if (original.length !== current.length) return true;
+
+  const originalByKey = new Map(original.map((card) => [driverCardKey(card), card]));
+  if (originalByKey.size !== original.length) return true;
+
+  for (const card of current) {
+    const previous = originalByKey.get(driverCardKey(card));
+    if (!previous) return true;
+    if (previous.name !== card.name) return true;
+    if (heatOf(previous.heat) !== heatOf(card.heat)) return true;
+    if ((previous.raceTime || "") !== (card.raceTime || "")) return true;
+    if ((previous.raceStatus || "") !== (card.raceStatus || "")) return true;
+    if ((previous.dogWeight || "") !== (card.dogWeight || "")) return true;
+    if ((previous.weightPulled || "") !== (card.weightPulled || "")) return true;
+    if (dogTeamSignature(previous.dogs) !== dogTeamSignature(card.dogs)) return true;
+  }
+
+  return false;
+}
