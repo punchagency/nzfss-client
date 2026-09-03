@@ -20,6 +20,7 @@ import {
   planDriverDeletions,
   planOrphanCleanup,
   resolveEntrantForUpdate,
+  editRequiresPointsResubmit,
 } from "@/lib/result-edit-matching";
 import {
   buildNewClassConditions,
@@ -45,6 +46,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { GET_MUSHERS } from "@/lib/graphql/musher";
 import { GET_ALL_RESULTS, GET_RESULTS_BY_EVENT_ID } from "@/graphql/query/addResult";
+import { GET_ALL_POINTS, GET_SAVED_RESULTS_POINTS } from "@/graphql/query/points";
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -611,7 +613,11 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
           authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
         },
       },
-      refetchQueries: [{ query: GET_ALL_RESULTS }],
+      refetchQueries: [
+        { query: GET_ALL_RESULTS },
+        { query: GET_ALL_POINTS },
+        { query: GET_SAVED_RESULTS_POINTS },
+      ],
     }
   );
   
@@ -657,7 +663,11 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
           authorization: localStorage.getItem("token") ? `Bearer ${localStorage.getItem("token")}` : "",
         },
       },
-      refetchQueries: [{ query: GET_ALL_RESULTS }],
+      refetchQueries: [
+        { query: GET_ALL_RESULTS },
+        { query: GET_ALL_POINTS },
+        { query: GET_SAVED_RESULTS_POINTS },
+      ],
     }
   );
 
@@ -781,7 +791,11 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
   }, [selectedResult, results, showAddClassForm]);
 
   const [deleteEntrant] = useMutation(DELETE_ENTRANT, {
-    refetchQueries: [{ query: GET_ALL_RESULTS }],
+    refetchQueries: [
+      { query: GET_ALL_RESULTS },
+      { query: GET_ALL_POINTS },
+      { query: GET_SAVED_RESULTS_POINTS },
+    ],
   });
 
   // Find the uniqueResults computation and convert it to useMemo
@@ -2249,12 +2263,24 @@ console.log("editedDrivers", editedDrivers);
         await Promise.all(orphanDeletePromises);
       }
 
+      const needsPointsResubmit =
+        idsToDelete.size > 0 ||
+        plannedOrphanIds.size > 0 ||
+        creationPromises.length > 0 ||
+        editRequiresPointsResubmit(originalEditedDrivers, editedDrivers);
+
       // If we get here, all mutations were successful
       toast({
         title: "Success",
-        description: `Updated ${editedDrivers.length} drivers successfully`,
+        description: needsPointsResubmit
+          ? `Updated ${editedDrivers.length} drivers. Open Save Results and submit so the new dog team is scored.`
+          : `Updated ${editedDrivers.length} drivers successfully`,
         variant: "default",
       });
+
+      if (needsPointsResubmit && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("pointsSubmitted"));
+      }
 
       // Reset state and close form
       setShowEditForm(false);
@@ -2666,6 +2692,8 @@ console.log("editedDrivers", editedDrivers);
                                               name: r.name,
                                               raceTime: r.raceTime,
                                               raceType: r.raceType || "",
+                                              heat: r.heat,
+                                              heatsData: r.heatsData,
                                             }))
                                           );
                                           const classKey = `${result.class}-${result.customClass || ""}`;

@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import {
   buildMusherGroups,
   isWeightpullGroup,
+  type DogParticipation,
   type MusherResultGroup,
 } from '@/lib/race-result-grouping';
 
@@ -85,7 +86,9 @@ export function MusherResultRows({
               <td className={isAdmin ? 'py-2 text-sm' : 'px-6 py-4 whitespace-nowrap text-sm text-gray-900'}>
                 {group.name}
               </td>
-              <td className={isAdmin ? 'py-2 text-sm' : 'px-6 py-4 text-sm text-gray-900'}>{group.dogsLabel}</td>
+              <td className={isAdmin ? 'py-2 text-sm' : 'px-6 py-4 text-sm text-gray-900'}>
+                <DogNamesList group={group} compact={isAdmin} />
+              </td>
               {isWeightpull ? (
                 <>
                   <td className={isAdmin ? 'py-2 text-sm' : 'px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900'}>
@@ -130,7 +133,7 @@ export function MusherResultRows({
               ) : null}
               {!isAdmin ? (
                 <td className="px-6 py-4 text-sm text-gray-900">
-                  <DogPointsList dogPoints={group.dogPoints} associatedDog={group.associatedDog} />
+                  <DogPointsList group={group} />
                 </td>
               ) : null}
               {isAdmin && renderStatus ? (
@@ -152,6 +155,11 @@ export function MusherResultRows({
                         >
                           <span className="min-w-[5rem] font-medium text-gray-800">{heat.heat}</span>
                           <span className="font-mono text-gray-900">{heat.raceTime}</span>
+                          {heat.associatedDog?.length ? (
+                            <span className="text-xs text-gray-500">
+                              {heat.associatedDog.map((d) => d.name).filter(Boolean).join(', ')}
+                            </span>
+                          ) : null}
                           {!isWeightpull && heat.points > 0 ? (
                             <span className="text-xs text-gray-500">{heat.points} pts (heat)</span>
                           ) : null}
@@ -173,27 +181,65 @@ export function MusherResultRows({
   );
 }
 
-function DogPointsList({
-  dogPoints,
-  associatedDog,
+function missedHeatsLabel(dog: DogParticipation): string {
+  if (dog.missedHeats.length === 1) return `missed ${dog.missedHeats[0]}`;
+  return `missed ${dog.missedHeats.length} heats`;
+}
+
+/**
+ * Every dog that started any heat is listed. A dog that skipped a heat is
+ * still part of the team's history, so it stays visible but is tagged.
+ */
+function DogNamesList({
+  group,
+  compact,
 }: {
-  dogPoints: { NZFSSRegistration: string; points: number }[];
-  associatedDog: { name: string; NZFSSRegistration: string }[];
+  group: MusherResultGroup;
+  compact: boolean;
 }) {
-  const entries = associatedDog?.length ? associatedDog : [];
+  const dogs = group.dogParticipation;
+  if (dogs.length === 0) return <span>{group.dogsLabel}</span>;
+
+  const showHeatTags = group.heatCount > 1;
 
   return (
     <div className="space-y-1">
-      {entries.map((dog, i) => {
-        const dogReg = (dog.NZFSSRegistration || '').trim().toLowerCase();
-        const dogName = (dog.name || '').trim().toLowerCase();
-        const dogPoint = dogPoints.find((dp) => {
-          const reg = (dp.NZFSSRegistration || '').trim().toLowerCase();
-          return (dogReg && reg === dogReg) || (dogName && reg === dogName);
-        });
+      {dogs.map((dog, i) => {
+        const partial = showHeatTags && !dog.ranEveryHeat;
         return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="font-medium text-gray-900">{dogPoint ? dogPoint.points : '0'}</span>
+          <div key={`${dog.NZFSSRegistration || dog.name}-${i}`} className="flex flex-wrap items-center gap-2">
+            <span className={partial ? 'text-gray-500' : ''}>{dog.name}</span>
+            {partial ? (
+              <span
+                className={`inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-800 ${
+                  compact ? 'text-[10px]' : 'text-xs'
+                }`}
+                title={`Ran ${dog.heatsRun.join(', ') || 'no heats'} of ${group.heatCount}. Dogs must run every heat to earn points.`}
+              >
+                {dog.heatsRun.length}/{group.heatCount} heats · {missedHeatsLabel(dog)}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DogPointsList({ group }: { group: MusherResultGroup }) {
+  const { dogParticipation } = group;
+  if (dogParticipation.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      {dogParticipation.map((dog, i) => {
+        const partial = group.heatCount > 1 && !dog.ranEveryHeat;
+        return (
+          <div key={`${dog.NZFSSRegistration || dog.name}-${i}`} className="flex items-center gap-2">
+            <span className={`font-medium ${partial ? 'text-gray-400' : 'text-gray-900'}`}>
+              {dog.points}
+            </span>
+            {partial ? <span className="text-xs text-gray-400">not eligible</span> : null}
           </div>
         );
       })}

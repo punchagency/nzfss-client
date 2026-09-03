@@ -29,6 +29,10 @@ export interface ScoringEntrant {
   raceTime?: string | null;
   raceType?: string | null;
   associatedDog?: ScoringDog[];
+  /** The heats the class was set up with; every row of a heated class carries the full list. */
+  heatsData?: { heat?: string | null }[] | null;
+  createdAt?: string | Date | null;
+  updatedAt?: string | Date | null;
 }
 
 /** Statuses that mean the run was not completed. */
@@ -55,12 +59,19 @@ export function heatLabel(entrant: ScoringEntrant): string {
   return (entrant.heat || "").trim() || "Heat 1";
 }
 
-/** Identifies a dog across heats: registration when present, else the name. */
+/**
+ * Identifies a dog across heats.
+ *
+ * Registration numbers are not unique per dog in practice: a musher's dogs
+ * often share one kennel number (e.g. two dogs both on "RR/098"). Keying on
+ * registration alone would merge them, so the name is part of the key too.
+ */
 export function dogKey(dog: ScoringDog): string {
   const reg = (dog.NZFSSRegistration || "").trim().toLowerCase();
-  if (reg && reg !== "unknown") return `reg:${reg}`;
+  const name = (dog.name || "").trim().toLowerCase();
+  if (reg && reg !== "unknown") return name ? `reg:${reg}|${name}` : `reg:${reg}`;
   if (dog.dogId) return `id:${dog.dogId}`;
-  return `name:${(dog.name || "").trim().toLowerCase()}`;
+  return `name:${name}`;
 }
 
 export interface MusherHeatGroup {
@@ -87,6 +98,26 @@ function toSeconds(time?: string | null): number {
   return parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + (isNaN(seconds) ? 0 : seconds);
 }
 
+function rowRecency(row: ScoringEntrant): number {
+  const stamp = row.updatedAt || row.createdAt;
+  if (!stamp) return 0;
+  const ms = new Date(stamp).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** True when `next` should replace `existing` as the canonical row for a heat. */
+export function isFresherHeatRow(
+  next: ScoringEntrant,
+  existing: ScoringEntrant
+): boolean {
+  const nextRecency = rowRecency(next);
+  const existingRecency = rowRecency(existing);
+  if (nextRecency !== existingRecency) return nextRecency > existingRecency;
+  const nextDogs = next.associatedDog?.length || 0;
+  const existingDogs = existing.associatedDog?.length || 0;
+  return nextDogs >= existingDogs;
+}
+
 /** Heats are ordered by their trailing number so "Heat 2" follows "Heat 10" correctly. */
 function heatSortValue(label: string): number {
   const digits = label.replace(/\D/g, "");
@@ -96,11 +127,25 @@ function heatSortValue(label: string): number {
 /**
  * How many heats the class ran.
  *
- * A heat label only counts when at least two mushers recorded it (or the class
- * has a single musher). That stops one corrupted stray "Heat 2" row from
- * marking every other team incomplete and awarding the polluter first place.
+ * The class set-up (heatsData) is authoritative: a musher who only has a row
+ * for one of two declared heats did not run the whole race and must not
+ * score, even if nobody else recorded the heat they skipped.
+ *
+ * Rows without heatsData fall back to the labels actually recorded. There a
+ * label only counts when at least two mushers recorded it (or the class has a
+ * single musher), so one corrupted stray "Heat 2" row cannot mark every other
+ * team incomplete and award the polluter first place.
  */
 export function expectedHeatsForClass(entrantsInClass: ScoringEntrant[]): Set<string> {
+  const declared = new Set<string>();
+  for (const entrant of entrantsInClass) {
+    for (const heat of entrant.heatsData || []) {
+      const label = (heat?.heat || "").trim();
+      if (label) declared.add(label);
+    }
+  }
+  if (declared.size > 0) return declared;
+
   const mushersByHeat = new Map<string, Set<string>>();
   const allMushers = new Set<string>();
 
@@ -147,16 +192,13 @@ export function buildMusherHeatGroups(
       groups.set(key, group);
     }
 
-    // Collapse duplicate rows that share a heat label (legacy bug from
-    // editing dog teams created multiple "Heat 1" documents). Prefer the
-    // row with the larger dog team so added dogs are not dropped.
+    // Collapse duplicate rows that share a heat label. The most recently
+    // saved row wins — preferring the larger team undid a Heat 2 dog drop
+    // whenever a stale fuller duplicate was still in the database.
     const label = heatLabel(entrant);
     const existingIdx = group.rows.findIndex((row) => heatLabel(row) === label);
     if (existingIdx >= 0) {
-      const existing = group.rows[existingIdx];
-      const existingDogs = existing.associatedDog?.length || 0;
-      const nextDogs = entrant.associatedDog?.length || 0;
-      if (nextDogs >= existingDogs) {
+      if (isFresherHeatRow(entrant, group.rows[existingIdx])) {
         group.rows[existingIdx] = entrant;
       }
     } else {
