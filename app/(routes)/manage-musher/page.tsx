@@ -4,11 +4,14 @@ import { Sidebar } from "@/app/(routes)/_components/sidebar";
 import TopHeader  from "@/app/(routes)/_components/top_header";
 import { useUser } from "@/context/user_context";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, ArrowUpDown } from 'lucide-react';
+import { Pencil, Trash2, ArrowUpDown, ArrowRightLeft } from 'lucide-react';
 import { useState, Dispatch, SetStateAction, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { gql, useMutation, useQuery } from "@apollo/client";
 import { CREATE_MUSHER, UPDATE_MUSHER, DELETE_MUSHER, MUSHER_DOG_FIELDS } from "@/lib/graphql/musher";
+import { GET_ALL_CLUBS } from "@/graphql/query/clubs";
+import { GET_MUSHER_TRANSFERS, REQUEST_MUSHER_TRANSFER } from "@/graphql/mutation/form";
+import { toast } from "sonner";
 import * as yup from 'yup';
 import Warning from "@/components/warning";
 import { useSearch } from "@/app/context/SearchContext";
@@ -252,6 +255,9 @@ const ManageClubMusher = () => {
     // Sorting state
     const [sortField, setSortField] = useState<'name' | 'registrationNo' | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [transferMusher, setTransferMusher] = useState<any | null>(null);
+    const [transferDestinationId, setTransferDestinationId] = useState("");
+    const [isTransferSubmitting, setIsTransferSubmitting] = useState(false);
     
     const { data, loading, error, refetch } = useQuery(GET_CLUB_MUSHERS_SAFE, {
         variables: {
@@ -272,6 +278,47 @@ const ManageClubMusher = () => {
             setIsLoading(false);
         }
     });
+
+    const { data: clubsData } = useQuery(GET_ALL_CLUBS);
+    const { data: transfersData } = useQuery(GET_MUSHER_TRANSFERS, {
+        variables: { clubId: user?._id },
+        skip: !user?._id,
+    });
+    const [requestMusherTransfer] = useMutation(REQUEST_MUSHER_TRANSFER);
+
+    const pendingTransferActions = (transfersData?.forms || []).filter(
+        (f: { affiliationTo?: string; affiliationFrom?: string; toClubApproval?: string; fromClubApproval?: string }) =>
+            (f.affiliationTo === user?._id && f.toClubApproval === "pending") ||
+            (f.affiliationFrom === user?._id && f.fromClubApproval === "pending")
+    ).length;
+
+    const handleRequestTransfer = async () => {
+        if (!transferMusher || !transferDestinationId) {
+            toast.error("Please select a destination club");
+            return;
+        }
+        setIsTransferSubmitting(true);
+        try {
+            await requestMusherTransfer({
+                variables: {
+                    input: {
+                        musherId: transferMusher._id || transferMusher.id,
+                        destinationClubId: transferDestinationId,
+                    },
+                },
+            });
+            toast.success(`${transferMusher.name} transfer requested`, {
+                description: "The destination club must accept before the musher moves. NZFSS numbers stay the same.",
+            });
+            setTransferMusher(null);
+            setTransferDestinationId("");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to request transfer";
+            toast.error(message);
+        } finally {
+            setIsTransferSubmitting(false);
+        }
+    };
 
     const [createMusher] = useMutation(CREATE_MUSHER, {
         refetchQueries: [
@@ -962,6 +1009,15 @@ const ManageClubMusher = () => {
                             </div>
                             <div className="flex gap-4">
                                 <button
+                                    onClick={() => router.push('/manage-musher/transfers')}
+                                    className="bg-white text-[0.95vw] font-[500] px-4 py-2 rounded-md border border-[#CDCECE] hover:bg-gray-200 flex items-center gap-2"
+                                >
+                                    Transfers
+                                    <div className={`px-2 py-0.5 rounded-full border border-gray-300 text-sm font-medium ${pendingTransferActions > 0 ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                                        {pendingTransferActions}
+                                    </div>
+                                </button>
+                                <button
                                     onClick={() => router.push('/manage-musher/pending-forms')}
                                     className="bg-white text-[0.95vw] font-[500] px-4 py-2 rounded-md border border-[#CDCECE] hover:bg-gray-200 flex items-center gap-2"
                                 >
@@ -1060,6 +1116,14 @@ const ManageClubMusher = () => {
                                 eventId={musher._id || musher.id}
                                 event={{ clubId: user?._id }} // Pass user's club ID for permission checking
                                 icons={[
+                                  <ArrowRightLeft
+                                    onClick={() => {
+                                      setTransferMusher(musher);
+                                      setTransferDestinationId("");
+                                    }}
+                                    className="w-[14px] h-[14px] text-[#323232] cursor-pointer hover:text-indigo-600 transition-colors duration-200"
+                                    key="transfer"
+                                  />,
                                   <Pencil
                                     onClick={() => {
                                       setIsEditing(true);
@@ -1409,6 +1473,68 @@ const ManageClubMusher = () => {
                         </button>
                     </div>
                 </form>
+            </Modal>
+
+            <Modal
+                title="Transfer musher to another club"
+                description="The destination club must accept before the musher and all their dogs move. NZFSS registration numbers stay the same."
+                isOpen={!!transferMusher}
+                onClose={() => {
+                    setTransferMusher(null);
+                    setTransferDestinationId("");
+                }}
+            >
+                {transferMusher && (
+                    <div className="space-y-4">
+                        <div className="rounded-lg border bg-gray-50 p-4">
+                            <p className="font-semibold text-lg">{transferMusher.name}</p>
+                            <p className="text-sm text-gray-600">
+                                NZFSS: {transferMusher.registrationNo || "—"}
+                            </p>
+                            <p className="text-sm text-gray-600 mt-1">
+                                {(transferMusher.dogs?.length || 0)} dog
+                                {(transferMusher.dogs?.length || 0) === 1 ? "" : "s"} will transfer with this musher.
+                            </p>
+                        </div>
+                        <div>
+                            <label className="block mb-2 font-medium">Destination club</label>
+                            <select
+                                className="w-full p-3 border rounded-lg"
+                                value={transferDestinationId}
+                                onChange={(e) => setTransferDestinationId(e.target.value)}
+                            >
+                                <option value="">Select destination club</option>
+                                {(clubsData?.getAllClubs || [])
+                                    .filter((club: { _id: string }) => club._id !== user?._id)
+                                    .map((club: { _id: string; name: string }) => (
+                                        <option key={club._id} value={club._id}>
+                                            {club.name}
+                                        </option>
+                                    ))}
+                            </select>
+                        </div>
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                type="button"
+                                className="flex-1 py-3 border border-gray-300 rounded-full"
+                                onClick={() => {
+                                    setTransferMusher(null);
+                                    setTransferDestinationId("");
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isTransferSubmitting || !transferDestinationId}
+                                className="flex-1 py-3 bg-black text-white rounded-full disabled:opacity-50"
+                                onClick={handleRequestTransfer}
+                            >
+                                {isTransferSubmitting ? "Requesting..." : "Request transfer"}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </Modal>
 
             {/* Delete Confirmation Modal */}
