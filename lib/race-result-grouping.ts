@@ -1,7 +1,27 @@
+import {
+  dogKey,
+  expectedHeatsForClass,
+  isFresherHeatRow,
+  type ScoringEntrant,
+} from "./heat-scoring";
+
 export interface HeatRun {
   entrantId: string;
   heat: string;
   raceTime: string;
+  points: number;
+  associatedDog: { name: string; NZFSSRegistration: string }[];
+}
+
+/** One dog's heat participation, so the public table can say why a dog scored 0. */
+export interface DogParticipation {
+  name: string;
+  NZFSSRegistration: string;
+  heatsRun: string[];
+  missedHeats: string[];
+  /** True when the dog ran every heat the musher ran and so is eligible for points. */
+  ranEveryHeat: boolean;
+  /** Points to display for this dog; always 0 when it missed a heat. */
   points: number;
 }
 
@@ -16,6 +36,7 @@ export interface MusherResultGroup {
   points: number;
   dogPoints: { NZFSSRegistration: string; points: number }[];
   associatedDog: { name: string; NZFSSRegistration: string }[];
+  dogParticipation: DogParticipation[];
   raceType: string;
   class: string;
   customClass: string;
@@ -83,24 +104,128 @@ function hasValidFinish(raceType: string): boolean {
   );
 }
 
-/** Overall place by combined heat times. */
+/**
+ * Overall place by combined heat times. Only mushers who finished every heat
+ * the class ran are placed; a one-heat entry in a two-heat class gets no rank.
+ */
 export function computeMusherRanks(
-  entrants: { name: string; raceTime?: string; raceType: string }[]
+  entrants: {
+    name: string;
+    raceTime?: string;
+    raceType: string;
+    heat?: string | null;
+    heatsData?: { heat?: string | null }[] | null;
+  }[]
 ): Map<string, number> {
+  const expectedHeats = expectedHeatsForClass(
+    entrants.map((e, i) => ({ _id: String(i), ...e }))
+  );
   const totals = new Map<string, number>();
+  const heatsRun = new Map<string, Set<string>>();
+  const failed = new Set<string>();
 
   for (const entrant of entrants) {
-    if (!hasValidFinish(entrant.raceType)) continue;
-    const secs = timeToSeconds(entrant.raceTime || '');
-    if (secs >= Number.MAX_VALUE) continue;
     const key = musherKey(entrant.name);
+    const label = (entrant.heat || '').trim() || 'Heat 1';
+    if (!heatsRun.has(key)) heatsRun.set(key, new Set());
+    heatsRun.get(key)!.add(label);
+
+    const secs = timeToSeconds(entrant.raceTime || '');
+    if (!hasValidFinish(entrant.raceType) || secs >= Number.MAX_VALUE) {
+      failed.add(key);
+      continue;
+    }
     totals.set(key, (totals.get(key) || 0) + secs);
   }
 
-  const sorted = [...totals.entries()].sort((a, b) => a[1] - b[1]);
+  const complete = [...totals.entries()].filter(([key]) => {
+    if (failed.has(key)) return false;
+    const run = heatsRun.get(key) || new Set<string>();
+    return [...expectedHeats].every((heat) => run.has(heat));
+  });
+
+  const sorted = complete.sort((a, b) => a[1] - b[1]);
   const ranks = new Map<string, number>();
   sorted.forEach(([name], index) => ranks.set(name, index + 1));
   return ranks;
+}
+
+function scoringRowFromHeat(heat: HeatRun, name: string): ScoringEntrant {
+  return {
+    _id: heat.entrantId,
+    name,
+    heat: heat.heat,
+    associatedDog: heat.associatedDog,
+  };
+}
+
+function unionDogsFromHeats(
+  heats: HeatRun[]
+): { name: string; NZFSSRegistration: string }[] {
+  const byKey = new Map<string, { name: string; NZFSSRegistration: string }>();
+  for (const heat of heats) {
+    for (const dog of heat.associatedDog || []) {
+      const key = dogKey(dog);
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          name: dog.name || "",
+          NZFSSRegistration: dog.NZFSSRegistration || "",
+        });
+      }
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+function dogParticipationFromHeats(
+  heats: HeatRun[],
+  dogs: { name: string; NZFSSRegistration: string }[]
+): DogParticipation[] {
+  const allHeats = heats.map((h) => h.heat);
+  return dogs.map((dog) => {
+    const key = dogKey(dog);
+    const heatsRun = heats
+      .filter((h) => (h.associatedDog || []).some((d) => dogKey(d) === key))
+      .map((h) => h.heat);
+    const missedHeats = allHeats.filter((h) => !heatsRun.includes(h));
+    return {
+      name: dog.name,
+      NZFSSRegistration: dog.NZFSSRegistration,
+      heatsRun,
+      missedHeats,
+      ranEveryHeat: missedHeats.length === 0,
+      points: 0,
+    };
+  });
+}
+
+function qualifyingDogKeys(participation: DogParticipation[]): Set<string> {
+  const keys = new Set<string>();
+  for (const dog of participation) {
+    if (dog.ranEveryHeat) keys.add(dogKey(dog));
+  }
+  return keys;
+}
+
+/** Stored heat-1 points still list a dropped dog at 10; live heat teams override that. */
+function dogPointsForDisplay(
+  stored: { NZFSSRegistration: string; points: number }[],
+  dogs: { name: string; NZFSSRegistration: string }[],
+  qualifying: Set<string>
+): { NZFSSRegistration: string; points: number }[] {
+  return dogs.map((dog) => {
+    const qualifies = qualifying.has(dogKey(dog));
+    const dogReg = (dog.NZFSSRegistration || "").trim().toLowerCase();
+    const dogName = (dog.name || "").trim().toLowerCase();
+    const storedRow = stored.find((dp) => {
+      const reg = (dp.NZFSSRegistration || "").trim().toLowerCase();
+      return (dogReg && reg === dogReg) || (dogName && reg === dogName);
+    });
+    return {
+      NZFSSRegistration: dog.NZFSSRegistration || dog.name,
+      points: qualifies ? storedRow?.points ?? 0 : 0,
+    };
+  });
 }
 
 interface RowInput {
@@ -145,6 +270,7 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
       heat: heatLabel,
       raceTime: row.entrant.raceTime || '—',
       points: row.points,
+      associatedDog: row.entrant.associatedDog || [],
     };
 
     const existing = map.get(key);
@@ -161,22 +287,18 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
       continue;
     }
 
-    // Prefer the row with the fullest dog team / dog-points payload so a
-    // partial legacy duplicate does not hide dogs added later.
-    const existingDogCount = existing.entrant.associatedDog?.length || 0;
-    const nextDogCount = row.entrant.associatedDog?.length || 0;
-    if (nextDogCount > existingDogCount || (nextDogCount === existingDogCount && row.dogPoints.length > existing.dogPoints.length)) {
-      existing.entrant = row.entrant;
-      existing.dogPoints = mergeDogPoints(existing.dogPoints, row.dogPoints);
-    } else {
-      existing.dogPoints = mergeDogPoints(existing.dogPoints, row.dogPoints);
-    }
+    existing.dogPoints = mergeDogPoints(existing.dogPoints, row.dogPoints);
 
-    // Same heat label more than once is a corrupted duplicate — keep one.
     const sameHeatIdx = existing.heats.findIndex((h) => h.heat === heatLabel);
     if (sameHeatIdx >= 0) {
-      existing.heats[sameHeatIdx] = heatRun;
-      // Recalculate total from unique heats only
+      if (
+        isFresherHeatRow(
+          scoringRowFromHeat(heatRun, row.entrant.name),
+          scoringRowFromHeat(existing.heats[sameHeatIdx], row.entrant.name)
+        )
+      ) {
+        existing.heats[sameHeatIdx] = heatRun;
+      }
       existing.totalSeconds = existing.heats.reduce((sum, h) => {
         const t = timeToSeconds(h.raceTime);
         return sum + (t < Number.MAX_VALUE ? t : 0);
@@ -197,6 +319,21 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
       return timeToSeconds(a.raceTime) - timeToSeconds(b.raceTime);
     });
 
+    const dogParticipation = dogParticipationFromHeats(g.heats, unionDogsFromHeats(g.heats));
+    // Scoring dogs first, missed-heat dogs last; stable so first-seen order holds within each.
+    dogParticipation.sort((a, b) => Number(b.ranEveryHeat) - Number(a.ranEveryHeat));
+    const associatedDog = dogParticipation.map(({ name, NZFSSRegistration }) => ({
+      name,
+      NZFSSRegistration,
+    }));
+    const qualifying = qualifyingDogKeys(dogParticipation);
+    const dogPoints = dogPointsForDisplay(g.dogPoints, associatedDog, qualifying);
+    // dogPointsForDisplay is positional with associatedDog, so index rather than
+    // match by registration — same-registration dogs would otherwise collide.
+    dogParticipation.forEach((dog, i) => {
+      dog.points = dogPoints[i]?.points ?? 0;
+    });
+
     return {
       groupKey: musherKey(g.name),
       name: g.name,
@@ -204,10 +341,11 @@ export function buildMusherGroups(rows: RowInput[]): MusherResultGroup[] {
       totalTime: secondsToRaceTime(g.totalSeconds) || g.heats[0]?.raceTime || '—',
       heatCount: g.heats.length,
       heats: g.heats,
-      dogsLabel: g.entrant.associatedDog.map((d) => d.name || '').join(', '),
+      dogsLabel: associatedDog.map((d) => d.name || '').join(', '),
       points: g.points,
-      dogPoints: g.dogPoints,
-      associatedDog: g.entrant.associatedDog,
+      dogPoints,
+      associatedDog,
+      dogParticipation,
       raceType: g.entrant.raceType,
       class: g.entrant.class,
       customClass: g.entrant.customClass,

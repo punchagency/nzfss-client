@@ -16,6 +16,7 @@ import {
   planOrphanCleanup,
   resolveEntrantForUpdate,
   simulateAddDogAndSubmit,
+  editRequiresPointsResubmit,
   type EditEntrantRow,
 } from "./result-edit-matching";
 import { hasNzfssRegistration, isRegisteredDog } from "./nzfss-registration";
@@ -32,7 +33,7 @@ import {
   dogKey,
   type ScoringEntrant,
 } from "./heat-scoring";
-import { buildMusherGroups } from "./race-result-grouping";
+import { buildMusherGroups, computeMusherRanks } from "./race-result-grouping";
 
 let failures = 0;
 let passes = 0;
@@ -641,6 +642,253 @@ for (let run = 1; run <= 10; run++) {
       ""
     );
     assert.equal(hasNzfssRegistration(resolveDogRegistration(null, null)), false);
+  });
+
+  check(`run ${run}: scoring — replacing a dog in heat 2 scores neither the dropped nor the new dog`, () => {
+    // Eric: drop Slim from heat 2 / swap Slim for Clyde. Only Akele ran both
+    // heats, so only Akele earns dog points.
+    const akele = { name: "Akele of Kumiak", NZFSSRegistration: "NZ-AKELE" };
+    const slim = { name: "Alaska Slim", NZFSSRegistration: "NZ-SLIM" };
+    const clyde = { name: "Clyde", NZFSSRegistration: "NZ-CLYDE" };
+    const entrants = [
+      makeScoring(`p${run}1`, [akele, slim], { heat: "Heat 1", raceTime: "00:10:00.00" }),
+      makeScoring(`p${run}2`, [akele, clyde], { heat: "Heat 2", raceTime: "00:20:00.00" }),
+    ];
+    const groups = buildMusherHeatGroups(entrants);
+    const group = groups.get("hayden franklin");
+    assert.ok(group);
+    assert.ok(group!.qualifyingDogKeys.has(dogKey(akele)), "Akele ran both heats");
+    assert.equal(
+      group!.qualifyingDogKeys.has(dogKey(slim)),
+      false,
+      "Slim dropped from Heat 2 must score 0"
+    );
+    assert.equal(
+      group!.qualifyingDogKeys.has(dogKey(clyde)),
+      false,
+      "Clyde only in Heat 2 must score 0"
+    );
+  });
+
+  check(`run ${run}: scoring — stale fuller Heat 2 duplicate does not restore a dropped dog`, () => {
+    const akele = { name: "Akela of Kumiak", NZFSSRegistration: "NZ-AKELE" };
+    const slim = { name: "Alaska Slim of Kumiak", NZFSSRegistration: "NZ-SLIM" };
+    const entrants = [
+      makeScoring(`u${run}1`, [akele, slim], { heat: "Heat 1", raceTime: "00:02:22.20" }),
+      makeScoring(`u${run}2`, [akele, slim], { heat: "Heat 2", raceTime: "00:11:11.10" }),
+      makeScoring(`u${run}3`, [slim], {
+        heat: "Heat 2",
+        raceTime: "00:11:11.10",
+        updatedAt: "2026-09-03T00:00:00.000Z",
+      }),
+    ];
+    const groups = buildMusherHeatGroups(entrants);
+    const group = groups.get("hayden franklin");
+    assert.ok(group);
+    assert.equal(group!.rows.length, 2);
+    assert.ok(group!.qualifyingDogKeys.has(dogKey(slim)));
+    assert.equal(
+      group!.qualifyingDogKeys.has(dogKey(akele)),
+      false,
+      "Akela only on the stale Heat 2 copy must score 0"
+    );
+  });
+
+  check(`run ${run}: display zeros a dog dropped from heat 2 even if stored points are 10`, () => {
+    const akele = { name: "Akela of Kumiak", NZFSSRegistration: "NZ-AKELE" };
+    const slim = { name: "Alaska Slim of Kumiak", NZFSSRegistration: "NZ-SLIM" };
+    const rows = [
+      {
+        _id: makeRow(`v${run}1`, [akele, slim], { heat: "Heat 1" })._id,
+        musherRank: 1,
+        points: 2,
+        dogPoints: [
+          { NZFSSRegistration: akele.NZFSSRegistration, points: 10 },
+          { NZFSSRegistration: slim.NZFSSRegistration, points: 10 },
+        ],
+        entrant: {
+          name: "ERIC ALTERMANN",
+          raceTime: "00:02:22.20",
+          heat: "Heat 1",
+          raceType: "Started",
+          class: "speed",
+          customClass: "Single-Dog Scooter",
+          associatedDog: [akele, slim],
+        },
+      },
+      {
+        _id: makeRow(`v${run}2`, [slim], { heat: "Heat 2" })._id,
+        musherRank: 1,
+        points: 0,
+        dogPoints: [{ NZFSSRegistration: slim.NZFSSRegistration, points: 0 }],
+        entrant: {
+          name: "ERIC ALTERMANN",
+          raceTime: "00:11:11.10",
+          heat: "Heat 2",
+          raceType: "Started",
+          class: "speed",
+          customClass: "Single-Dog Scooter",
+          associatedDog: [slim],
+        },
+      },
+    ];
+    const groups = buildMusherGroups(rows);
+    assert.equal(groups.length, 1);
+    const akelePts = groups[0].dogPoints.find(
+      (d) => d.NZFSSRegistration === akele.NZFSSRegistration
+    );
+    const slimPts = groups[0].dogPoints.find(
+      (d) => d.NZFSSRegistration === slim.NZFSSRegistration
+    );
+    assert.equal(akelePts?.points, 0, "Akela not in Heat 2 must display 0");
+    assert.equal(slimPts?.points, 10, "Slim ran both heats and keeps 10");
+
+    // Public page must still list Akela (she ran Heat 1) and explain the missed heat.
+    assert.deepEqual(
+      groups[0].associatedDog.map((d) => d.name),
+      [slim.name, akele.name],
+      "both dogs stay visible on the results page, scoring dog listed first"
+    );
+    const akeleRun = groups[0].dogParticipation.find(
+      (d) => d.NZFSSRegistration === akele.NZFSSRegistration
+    );
+    const slimRun = groups[0].dogParticipation.find(
+      (d) => d.NZFSSRegistration === slim.NZFSSRegistration
+    );
+    assert.deepEqual(akeleRun?.heatsRun, ["Heat 1"]);
+    assert.deepEqual(akeleRun?.missedHeats, ["Heat 2"]);
+    assert.equal(akeleRun?.ranEveryHeat, false);
+    assert.deepEqual(slimRun?.heatsRun, ["Heat 1", "Heat 2"]);
+    assert.equal(slimRun?.ranEveryHeat, true);
+  });
+
+  check(`run ${run}: public page lists both dogs when they share one registration number`, () => {
+    // Live data: Eric's two dogs are both registered "RR/098".
+    const akele = { name: "Akela of Kumiak", NZFSSRegistration: "RR/098" };
+    const slim = { name: "Alaska Slim of Kumiak", NZFSSRegistration: "RR/098" };
+    const base = {
+      name: "ERIC ALTERMANN",
+      raceType: "started",
+      class: "speed",
+      customClass: "Single-Dog Scooter",
+    };
+    const rows = [
+      {
+        _id: `sr${run}1`,
+        musherRank: 1,
+        points: 1,
+        dogPoints: [
+          { NZFSSRegistration: "RR/098", points: 10 },
+          { NZFSSRegistration: "RR/098", points: 10 },
+        ],
+        entrant: { ...base, raceTime: "00:11:10.00", heat: "Heat 1", associatedDog: [akele, slim] },
+      },
+      {
+        _id: `sr${run}2`,
+        musherRank: 1,
+        points: 0,
+        dogPoints: [{ NZFSSRegistration: "RR/098", points: 0 }],
+        entrant: { ...base, raceTime: "00:02:20.00", heat: "Heat 2", associatedDog: [slim] },
+      },
+    ];
+    const [group] = buildMusherGroups(rows);
+    assert.deepEqual(
+      group.dogParticipation.map((d) => [d.name, d.ranEveryHeat, d.points]),
+      [
+        [slim.name, true, 10],
+        [akele.name, false, 0],
+      ],
+      "shared registration must not merge two dogs; Akela shows last as missed-heat with 0"
+    );
+    assert.deepEqual(group.dogParticipation[1].missedHeats, ["Heat 2"]);
+  });
+
+  check(`run ${run}: scoring — one-heat musher in a declared two-heat class scores nothing (Kutan)`, () => {
+    const kutan = { name: "Kutan Indy", NZFSSRegistration: "NZ-KUTAN" };
+    const akele = { name: "Akela of Kumiak", NZFSSRegistration: "NZ-AKELE" };
+    const heatsData = [{ heat: "Heat 1" }, { heat: "Heat 2" }];
+    const entrants = [
+      makeScoring(`w${run}1`, [kutan], { name: "Geoff Leong", heat: "Heat 1", raceTime: "00:12:20.00", heatsData }),
+      makeScoring(`w${run}2`, [akele], { name: "Eric Altermann", heat: "Heat 1", raceTime: "00:11:10.00", heatsData }),
+      makeScoring(`w${run}3`, [akele], { name: "Eric Altermann", heat: "Heat 2", raceTime: "00:02:20.00", heatsData }),
+    ];
+    const groups = buildMusherHeatGroups(entrants);
+    const geoff = groups.get("geoff leong");
+    const eric = groups.get("eric altermann");
+    assert.ok(geoff && eric);
+    assert.equal(geoff!.complete, false, "Geoff only ran Heat 1");
+    assert.equal(eric!.complete, true);
+
+    const ranks = computeMusherRanks(
+      entrants.map((e) => ({
+        name: e.name,
+        raceTime: e.raceTime || undefined,
+        raceType: e.raceType || "",
+        heat: e.heat,
+        heatsData: e.heatsData,
+      }))
+    );
+    assert.equal(ranks.get("eric altermann"), 1);
+    assert.equal(ranks.has("geoff leong"), false, "incomplete team is unplaced");
+  });
+
+  check(`run ${run}: scoring — swapped dog on a single-heat team qualifies`, () => {
+    const clyde = { name: "Clyde", NZFSSRegistration: "NZ-CLYDE" };
+    const entrants = [makeScoring(`q${run}1`, [clyde])];
+    const groups = buildMusherHeatGroups(entrants);
+    const group = groups.get("hayden franklin");
+    assert.ok(group);
+    assert.ok(group!.qualifyingDogKeys.has(dogKey(clyde)));
+    assert.equal(group!.qualifyingDogKeys.has(dogKey(ROGUE)), false);
+  });
+
+  check(`run ${run}: edit form flags a dog swap as needing points resubmit`, () => {
+    const original = [
+      {
+        _id: makeRow(`r${run}`, [ROGUE])._id,
+        name: "Hayden Franklin",
+        dogs: [ROGUE],
+        heat: "Heat 1",
+        raceStatus: "Started",
+        raceTime: "00:10:00.00",
+      },
+    ];
+    const swapped = [
+      {
+        ...original[0],
+        dogs: [JUGGERNAUT],
+      },
+    ];
+    assert.equal(editRequiresPointsResubmit(original, swapped), true);
+    assert.equal(editRequiresPointsResubmit(original, original), false);
+  });
+
+  check(`run ${run}: edit form flags dropping a heat-2 dog as needing points resubmit`, () => {
+    const heat1Id = makeRow(`s${run}1`, [ROGUE, JUGGERNAUT], { heat: "Heat 1" })._id;
+    const heat2Id = makeRow(`s${run}2`, [ROGUE, JUGGERNAUT], { heat: "Heat 2" })._id;
+    const original = [
+      {
+        _id: heat1Id,
+        name: "Hayden Franklin",
+        dogs: [ROGUE, JUGGERNAUT],
+        heat: "Heat 1",
+        raceStatus: "Started",
+        raceTime: "00:10:00.00",
+      },
+      {
+        _id: heat2Id,
+        name: "Hayden Franklin",
+        dogs: [ROGUE, JUGGERNAUT],
+        heat: "Heat 2",
+        raceStatus: "Started",
+        raceTime: "00:20:00.00",
+      },
+    ];
+    const dropped = [
+      original[0],
+      { ...original[1], dogs: [ROGUE] },
+    ];
+    assert.equal(editRequiresPointsResubmit(original, dropped), true);
   });
 
   check(`run ${run}: blank registration is not treated as registered ("Unknown" coercion)`, () => {

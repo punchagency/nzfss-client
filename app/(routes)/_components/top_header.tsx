@@ -185,7 +185,9 @@ const TopHeader: React.FC<TopHeaderProps> = ({ placeholder }) => {
       // Route based on notification type
       if (notif.type === "MUSHER_SUBMISSION") {
         router.push('/manage-musher/pending-forms')
-      } else if (notif.type.toLowerCase().includes('submission') || 
+      } else if (notif.type === "MUSHER_TRANSFER") {
+        router.push('/manage-musher/transfers')
+      } else if (notif.type.toLowerCase().includes('submission') ||
           notif.type === "EVENT_SUBMISSION") {
         router.push('/calendar?tab=2')
       } else if (notif.type.includes("EVENT") && notif.eventId) {

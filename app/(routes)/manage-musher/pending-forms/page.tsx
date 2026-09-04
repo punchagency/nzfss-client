@@ -317,7 +317,17 @@ const PendingFormsPage = () => {
                         <div className="flex justify-between items-center mb-6">
                             <div>
                                 <h1 className="text-2xl font-bold mb-2">Pending Registration Forms</h1>
-                                <p className="text-gray-600">Review and manage pending musher registration forms</p>
+                                <p className="text-gray-600">
+                                    Review new registrations and renewals. Change-of-club transfers are managed on{" "}
+                                    <button
+                                        type="button"
+                                        className="text-blue-600 underline"
+                                        onClick={() => router.push("/manage-musher/transfers")}
+                                    >
+                                        Musher Transfers
+                                    </button>
+                                    .
+                                </p>
                             </div>
                             <Button
                                 variant="outline"
@@ -330,8 +340,8 @@ const PendingFormsPage = () => {
                         </div>
 
                         <div className="space-y-4">
-                            {data?.forms?.length > 0 ? (
-                                data.forms.map((form: any) => (
+                            {data?.forms?.filter((f: { formType: string }) => f.formType !== "change").length > 0 ? (
+                                data.forms.filter((f: { formType: string }) => f.formType !== "change").map((form: any) => (
                                     <Card key={form._id} className="overflow-hidden rounded-2xl shadow-md border border-gray-200 bg-white transition-shadow hover:shadow-lg">
                                         <CardHeader className="bg-gray-50 border-b p-6">
                                             <div className="flex justify-between items-start">

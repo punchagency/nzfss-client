@@ -264,9 +264,17 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
+    const handlePointsInvalidated = () => {
+      if (isClient) {
+        refetchAllData();
+      }
+    };
+    window.addEventListener('pointsSubmitted', handlePointsInvalidated);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pointsSubmitted', handlePointsInvalidated);
     };
   }, [isClient, refetchResults, refetchEvents, refetchClub, refetchPoints, refetchMushers]);
 
@@ -833,6 +841,19 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     }
 
     return { points, cutoffTime, dogPoints };
+  };
+
+  // Heat 2 may already be submitted at 0 points and hidden from `entrants`.
+  // Scoring a dropped dog against only Heat 1 makes it look like it ran every
+  // heat. Always rank against the full class from the server.
+  const classmatesForScoring = (entrant: Entrant, fallback: Entrant[]): Entrant[] => {
+    const all = ((resultsData?.getAllEntrants || []) as Entrant[]).filter(
+      (e) =>
+        e.eventId === entrant.eventId &&
+        e.class === entrant.class &&
+        e.customClass === entrant.customClass
+    );
+    return all.length > 0 ? all : fallback;
   };
 
   // Calculate weightpull dog points using the correct Championship Weightpull Dog System
@@ -1801,7 +1822,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
                                           if (isWeightpull) {
                                             // For weightpull events, calculate musher points within class
-                                            const musherResult = calculatePoints(entrant, entrants);
+                                            const musherResult = calculatePoints(entrant, classmatesForScoring(entrant, entrants));
                                             const musherPoints = musherResult.points;
                                             
                                             // Get all weightpull entrants from all classes for dog points
@@ -1861,7 +1882,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
                                           if (isMusherRace) {
                                             // Calculate musher points and dog points using Annual Musher System
-                                            const musherResult = calculatePoints(entrant, entrants);
+                                            const musherResult = calculatePoints(entrant, classmatesForScoring(entrant, entrants));
                                             const musherPoints = musherResult.points;
                                             const dogPoints = musherResult.dogPoints;
                                             
@@ -1898,7 +1919,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
                                           }
 
                                           // Fallback case - show dog points for any other race types
-                                          const musherResult = calculatePoints(entrant, entrants);
+                                          const musherResult = calculatePoints(entrant, classmatesForScoring(entrant, entrants));
                                           const musherPoints = musherResult.points;
                                           const dogPoints = musherResult.dogPoints;
                                           

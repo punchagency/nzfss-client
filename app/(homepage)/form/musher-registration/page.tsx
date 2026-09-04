@@ -629,6 +629,10 @@ const FormPage = () => {
             <div className="space-y-6 border rounded-lg p-6">
               <div className="bg-[#ECECEF] -mx-6 -mt-6 p-4 mb-6 rounded-t-lg">
                 <h3 className="font-[600] text-lg">Change of Registration</h3>
+                <p className="text-sm text-gray-600 mt-2">
+                  Both your current club and your new club must approve before the transfer completes.
+                  NZFSS registration numbers stay the same.
+                </p>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
