@@ -81,6 +81,11 @@ const Sidebar = () => {
       href: "/manage-musher/transfers"
     },
     {
+      id: "3c",
+      label: "Dog Transfers",
+      href: "/manage-musher/dog-transfers"
+    },
+    {
       id: "4",
       label: "Club Contact",
       href: "/clubcontact"

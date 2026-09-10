@@ -1018,6 +1018,12 @@ const ManageClubMusher = () => {
                                     </div>
                                 </button>
                                 <button
+                                    onClick={() => router.push('/manage-musher/dog-transfers')}
+                                    className="bg-white text-[0.95vw] font-[500] px-4 py-2 rounded-md border border-[#CDCECE] hover:bg-gray-200 flex items-center gap-2"
+                                >
+                                    Dog Transfers
+                                </button>
+                                <button
                                     onClick={() => router.push('/manage-musher/pending-forms')}
                                     className="bg-white text-[0.95vw] font-[500] px-4 py-2 rounded-md border border-[#CDCECE] hover:bg-gray-200 flex items-center gap-2"
                                 >

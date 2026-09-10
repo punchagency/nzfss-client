@@ -27,6 +27,7 @@ import {
   findCollidingDriverCards,
   resolveDogRegistration,
 } from "@/lib/new-class-submission";
+import { isSameSelectableDog } from "@/lib/dog-selection";
 import { useRouter } from "next/navigation";
 import { LogHistoryModal } from "./log_history_modal";
 import { Label } from "@/components/ui/label";
@@ -1365,19 +1366,15 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
 
   const handleDogSelect = useCallback((dog: Dogs) => {
     setSelectedRows((prevRows) => {
-      const isSelected = prevRows.some(
-        (selected) =>
-          selected.name === dog.name &&
-          selected.NZFSSRegistration === dog.NZFSSRegistration
+      // Match on the unique registration number (falling back to name + breed
+      // for unregistered dogs) so two dogs sharing a name are told apart.
+      const isSelected = prevRows.some((selected) =>
+        isSameSelectableDog(selected, dog)
       );
 
       if (isSelected) {
         // Remove the dog if already selected
-        return prevRows.filter(
-          (selected) =>
-            selected.name !== dog.name ||
-            selected.NZFSSRegistration !== dog.NZFSSRegistration
-        );
+        return prevRows.filter((selected) => !isSameSelectableDog(selected, dog));
       } else {
         // Add the new dog
         return [...prevRows, dog];
@@ -1855,16 +1852,15 @@ console.log("editedDrivers", editedDrivers);
 
   // Add new function to handle other dog selection
   const handleOtherDogSelect = (dog: any) => {
-    // Check if dog is already selected
-    const isSelected = selectedRows.some(selected => 
-      selected.name === dog.name && 
-      selected.breed === dog.breed
-    );
-    
+    // Check if dog is already selected. Dogs are matched on their unique
+    // registration number so two that share a name and breed (e.g. two "OCEAN"
+    // Siberian Huskies with different owners) are told apart — see isSameSelectableDog.
+    const isSelected = selectedRows.some(selected => isSameSelectableDog(selected, dog));
+
     if (isSelected) {
       // Remove dog from selection
-      setSelectedRows(selectedRows.filter(selected => 
-        !(selected.name === dog.name && selected.breed === dog.breed)
+      setSelectedRows(selectedRows.filter(selected =>
+        !isSameSelectableDog(selected, dog)
       ));
     } else {
       // Add dog to selection
@@ -4486,10 +4482,11 @@ console.log("editedDrivers", editedDrivers);
                         <tbody>
                           {filteredDogs.length > 0 ? (
                             filteredDogs.map((dog: Dogs, index: number) => {
-                              // Check if dog is in selectedRows
-                              const isSelected = selectedRows.some((selected: Dogs) => 
-                                selected.name === dog.name && 
-                                selected.breed === dog.breed
+                              // Check if dog is in selectedRows. Match on the
+                              // unique registration number (matching handleDogSelect)
+                              // so two dogs sharing a name and breed are told apart.
+                              const isSelected = selectedRows.some((selected: Dogs) =>
+                                isSameSelectableDog(selected, dog)
                               );
                               
                               return (
@@ -4593,11 +4590,10 @@ console.log("editedDrivers", editedDrivers);
                             </thead>
                             <tbody>
                               {displayedOtherDogs.map((dog, index) => {
-                                const isSelected = selectedRows.some(selected => 
-                                  selected.name === dog.name && 
-                                  selected.breed === dog.breed
+                                const isSelected = selectedRows.some(selected =>
+                                  isSameSelectableDog(selected, dog)
                                 );
-                                
+
                                 return (
                                   <tr key={`${dog._id || dog.id}-${index}`} className={index !== displayedOtherDogs.length - 1 ? "border-b" : ""}>
                                     <td className="p-2">
