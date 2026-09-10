@@ -34,6 +34,7 @@ import {
   type ScoringEntrant,
 } from "./heat-scoring";
 import { buildMusherGroups, computeMusherRanks } from "./race-result-grouping";
+import { isSameSelectableDog, selectableDogKey } from "./dog-selection";
 
 let failures = 0;
 let passes = 0;
@@ -889,6 +890,45 @@ for (let run = 1; run <= 10; run++) {
       { ...original[1], dogs: [ROGUE] },
     ];
     assert.equal(editRequiresPointsResubmit(original, dropped), true);
+  });
+
+  check(`run ${run}: entrant picker keeps two same-name same-breed dogs distinct (Gaby/Eric OCEAN)`, () => {
+    // Two "OCEAN" Siberian Huskies, different owners and registrations. In the
+    // "Other Dogs Available" search, ticking one used to tick both because
+    // selection matched on name + breed alone.
+    const oceanA = { name: "OCEAN", breed: "Siberian Husky", nzfssNo: "RR/098/OCEAN" };
+    const oceanB = { name: "OCEAN", breed: "Siberian Husky", nzfssNo: "RR/193/OCEAN" };
+
+    assert.notEqual(selectableDogKey(oceanA), selectableDogKey(oceanB));
+    assert.equal(isSameSelectableDog(oceanA, oceanB), false);
+
+    // Selecting oceanA leaves oceanB unselected in the picker.
+    const selectedRows = [
+      { name: "OCEAN", breed: "Siberian Husky", NZFSSRegistration: "RR/098/OCEAN" },
+    ];
+    assert.equal(selectedRows.some((s) => isSameSelectableDog(s, oceanA)), true);
+    assert.equal(selectedRows.some((s) => isSameSelectableDog(s, oceanB)), false);
+  });
+
+  check(`run ${run}: entrant picker matches a registry dog to an already-added row`, () => {
+    // The picker compares registry dogs (nzfssNo) against rows already on the
+    // form (NZFSSRegistration) — the same dog must read as selected.
+    const registryDog = { name: "OCEAN", breed: "Siberian Husky", nzfssNo: "RR/098/OCEAN" };
+    const addedRow = { name: "OCEAN", breed: "Siberian Husky", NZFSSRegistration: "RR/098/OCEAN" };
+    assert.equal(isSameSelectableDog(registryDog, addedRow), true);
+  });
+
+  check(`run ${run}: entrant picker falls back to name+breed for unregistered dogs`, () => {
+    // No registration on either side: name + breed is all there is to match on.
+    const a = { name: "Ghost", breed: "Malamute", nzfssNo: "" };
+    const b = { name: "Ghost", breed: "Malamute", NZFSSRegistration: "" };
+    const c = { name: "Ghost", breed: "Husky", NZFSSRegistration: "" };
+    assert.equal(isSameSelectableDog(a, b), true);
+    assert.equal(isSameSelectableDog(a, c), false, "different breed is a different dog");
+    // A blank spelt "Unknown" must not merge two otherwise-distinct dogs by registration.
+    const d = { name: "Ghost", breed: "Malamute", NZFSSRegistration: "Unknown" };
+    const e = { name: "Storm", breed: "Malamute", NZFSSRegistration: "Unknown" };
+    assert.equal(isSameSelectableDog(d, e), false);
   });
 
   check(`run ${run}: blank registration is not treated as registered ("Unknown" coercion)`, () => {
