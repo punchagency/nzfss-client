@@ -910,6 +910,24 @@ for (let run = 1; run <= 10; run++) {
     assert.equal(selectedRows.some((s) => isSameSelectableDog(s, oceanB)), false);
   });
 
+  check(`run ${run}: entrant picker keeps a musher's dogs distinct when they share one registration (Colin Whitley)`, () => {
+    // Colin Whitley's six dogs are all registered "CS/091" (a shared kennel
+    // number). Ticking one used to tick all six because selection keyed on the
+    // registration alone. They must stay distinct by name.
+    const team = ["TROOPER", "JETT", "BANDIT", "ROCKET", "WILLOW", "PIXIE"].map(
+      (name) => ({ name, breed: "Siberian Husky", NZFSSRegistration: "CS/091" })
+    );
+    const keys = new Set(team.map((d) => selectableDogKey(d)));
+    assert.equal(keys.size, 6, "all six same-registration dogs are distinct");
+
+    // Selecting TROOPER must not read as selecting the rest of the team.
+    const selectedRows = [team[0]];
+    const selectedCount = team.filter((d) =>
+      selectedRows.some((s) => isSameSelectableDog(s, d))
+    ).length;
+    assert.equal(selectedCount, 1, "only the ticked dog reads as selected");
+  });
+
   check(`run ${run}: entrant picker matches a registry dog to an already-added row`, () => {
     // The picker compares registry dogs (nzfssNo) against rows already on the
     // form (NZFSSRegistration) — the same dog must read as selected.

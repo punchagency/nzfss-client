@@ -39,17 +39,20 @@ function registrationOf(dog: SelectableDog): string {
  * A stable identity for a dog in the pickers. Two dogs are the same selection
  * iff their keys are equal.
  *
- * Registered dogs key on their (normalised) registration number, so two dogs
- * that merely share a name and breed stay distinct. Unregistered dogs — no
- * number, or a blank spelt "Unknown"/"n/a"/etc. — key on name + breed, since
- * that is all there is to go on.
+ * A registration number is NOT unique per dog in this data — a musher's dogs
+ * often share one kennel number (e.g. all six of a musher's dogs registered
+ * "CS/091", or two dogs sharing "RR/098"). So the key combines registration
+ * AND name: that tells apart same-registration dogs with different names (a
+ * musher's own team) as well as same-name dogs with different registrations
+ * (two "OCEAN"s owned by different people). Unregistered dogs — no number, or
+ * a blank spelt "Unknown"/"n/a"/etc. — fall back to name + breed.
  */
 export function selectableDogKey(dog: SelectableDog): string {
   const reg = registrationOf(dog);
-  if (hasNzfssRegistration(reg)) {
-    return `reg:${reg.toLowerCase()}`;
-  }
   const name = (dog.name || "").trim().toLowerCase();
+  if (hasNzfssRegistration(reg)) {
+    return `reg:${reg.toLowerCase()}|${name}`;
+  }
   const breed = (dog.breed || "").trim().toLowerCase();
   return `nb:${name}|${breed}`;
 }
