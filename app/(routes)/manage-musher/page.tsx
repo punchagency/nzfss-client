@@ -476,7 +476,13 @@ const ManageClubMusher = () => {
                 guardianDetails: newMusher.guardianDetails || "",
                 clubId: user?._id,
                 showProfileConsent: newMusher.showProfileConsent,
-                dogs: newMusher.associatedDogs.map(dog => ({
+                // Drop blank dog rows (e.g. the placeholder row shown on a new
+                // musher) so a musher saved without dog details keeps no dogs,
+                // instead of persisting an empty dog that later surfaces as an
+                // empty selectable row in the race-entry screen.
+                dogs: newMusher.associatedDogs
+                  .filter(dog => dog.name && dog.name.trim() !== "")
+                  .map(dog => ({
                     dogId: dog.dogId || dog._id || undefined,
                     _id: dog.dogId || dog._id || undefined,
                     name: dog.name ? dog.name.trim() : "",
@@ -916,17 +922,15 @@ const ManageClubMusher = () => {
                                                 </div>
                                             </td>
                                             <td className="p-2 text-center">
-                                                <button 
+                                                <button
                                                     type="button"
-                                                    className={`text-gray-500 hover:text-red-500 ${newMusher.associatedDogs.length <= 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    className="text-gray-500 hover:text-red-500"
                                                     onClick={() => {
-                                                        if (newMusher.associatedDogs.length > 1) {
-                                                            const updatedDogs = [...newMusher.associatedDogs];
-                                                            updatedDogs.splice(index, 1);
-                                                            setNewMusher({...newMusher, associatedDogs: updatedDogs});
-                                                        }
+                                                        const updatedDogs = [...newMusher.associatedDogs];
+                                                        updatedDogs.splice(index, 1);
+                                                        setNewMusher({...newMusher, associatedDogs: updatedDogs});
                                                     }}
-                                                    disabled={newMusher.associatedDogs.length <= 1}
+                                                    title="Remove dog"
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
@@ -1404,18 +1408,15 @@ const ManageClubMusher = () => {
                                             </td>
                                             <td className="px-1 py-2">
                                                 <div className="flex justify-center">
-                                                    <button 
+                                                    <button
                                                         type="button"
-                                                        className={`p-1.5 rounded hover:bg-gray-200 transition-colors ${newMusher.associatedDogs.length <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-red-500'}`}
+                                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-500 hover:text-red-500"
                                                         onClick={() => {
-                                                            if (newMusher.associatedDogs.length > 1) {
-                                                                const updatedDogs = [...newMusher.associatedDogs];
-                                                                updatedDogs.splice(index, 1);
-                                                                setNewMusher({...newMusher, associatedDogs: updatedDogs});
-                                                            }
+                                                            const updatedDogs = [...newMusher.associatedDogs];
+                                                            updatedDogs.splice(index, 1);
+                                                            setNewMusher({...newMusher, associatedDogs: updatedDogs});
                                                         }}
-                                                        disabled={newMusher.associatedDogs.length <= 1}
-                                                        title={newMusher.associatedDogs.length <= 1 ? "At least one dog required" : "Remove dog"}
+                                                        title="Remove dog"
                                                     >
                                                         <Trash2 size={14} />
                                                     </button>
