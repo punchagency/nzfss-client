@@ -28,36 +28,65 @@ const ActionIcons = ({ event, eventId, icons, onSubmit }: ActionIconsProps) => {
         // Extract onClick handler from the icon if it exists
         const iconProps = React.isValidElement(Icon) ? Icon.props : {};
         const iconOnClick = iconProps.onClick;
-        
-        // Determine tooltip text based on index or icon type
+
+        // A React element's `key` lives on the element itself, not in its props
+        // (reading `iconProps.key` always returns undefined). Callers tag each
+        // icon with a semantic key (e.g. key="transfer"), so read it from there.
+        const iconKey =
+          React.isValidElement(Icon) && typeof Icon.key === "string"
+            ? Icon.key.toLowerCase()
+            : "";
+
+        // Map a semantic key to its tooltip label.
+        const keyLabels: Record<string, string> = {
+          transfer: "Transfer",
+          edit: "Edit",
+          pen: "Edit",
+          delete: "Delete",
+          trash: "Delete",
+          view: "View",
+          approve: "Approve",
+          decline: "Decline",
+        };
+
+        // Determine tooltip text: an explicit title/aria-label on the icon wins,
+        // then the semantic key, then alt text, then a positional fallback.
         let tooltipText = "Action";
-        
-        // Check for edit icon based on alt text or key
-        if (React.isValidElement(Icon) && 
-            ((iconProps.alt && typeof iconProps.alt === 'string' && 
-              (iconProps.alt.includes("Rules Icon") || iconProps.alt.includes("pen"))) || 
-             iconProps.key === "edit")) {
+        const explicitTitle =
+          typeof iconProps.title === "string"
+            ? iconProps.title
+            : typeof iconProps["aria-label"] === "string"
+            ? iconProps["aria-label"]
+            : "";
+
+        if (explicitTitle) {
+          tooltipText = explicitTitle;
+        } else if (keyLabels[iconKey]) {
+          tooltipText = keyLabels[iconKey];
+        } else if (
+          iconProps.alt &&
+          typeof iconProps.alt === "string" &&
+          (iconProps.alt.includes("Rules Icon") || iconProps.alt.includes("pen"))
+        ) {
           tooltipText = "Edit";
-        }
-        // Check for delete icon based on alt text or key
-        else if (React.isValidElement(Icon) && 
-                ((iconProps.alt && typeof iconProps.alt === 'string' && iconProps.alt.includes("trash")) || 
-                 iconProps.key === "delete")) {
+        } else if (
+          iconProps.alt &&
+          typeof iconProps.alt === "string" &&
+          iconProps.alt.includes("trash")
+        ) {
+          tooltipText = "Delete";
+        } else if (index === 0) {
+          tooltipText = "Edit";
+        } else if (index === 1) {
           tooltipText = "Delete";
         }
-        // Fallback based on index (assuming first is edit, second is delete)
-        else if (index === 0) {
-          tooltipText = "Edit";
-        } 
-        else if (index === 1) {
-          tooltipText = "Delete";
-        }
-        
+
         return (
           <button
             className="active:bg-gray-300 transform transition-transform duration-200 ease-in-out active:scale-95 border-[#CDCECE] hover:bg-gray-200 border h-[40px] w-[40px] rounded-[12px] flex items-center justify-center instant-anim"
             key={index}
             title={tooltipText}
+            aria-label={tooltipText}
             onClick={(e) => {
               e.stopPropagation(); // Prevent event bubbling
               if (iconOnClick) iconOnClick(e); // Directly call the icon's onClick handler

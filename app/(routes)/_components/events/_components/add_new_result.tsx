@@ -318,6 +318,12 @@ const getDogDisplayName = (dog: { name: string; pedigreeName?: string } | Dogs):
   return dog.name || '';
 };
 
+// A dog only counts as "real" once it has a name. Mushers created without
+// entering any dog details can end up with a blank placeholder dog persisted;
+// this keeps those empty rows out of the selection lists.
+const dogHasName = (dog: { name?: string } | null | undefined): boolean =>
+  !!(dog && dog.name && dog.name.trim() !== '');
+
 const AddNewResult = ({ eventId }: { eventId: string }) => {
   const { data } = useQuery(GET_ALL_DOGS);
   
@@ -2297,8 +2303,8 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
         ? clubMushers.filter(musher => musher.id !== selectedMusher.id)
         : clubMushers;
       
-      const allDogs = otherMushers.flatMap(musher => 
-        musher.dogs.map(dog => ({
+      const allDogs = otherMushers.flatMap(musher =>
+        musher.dogs.filter(dogHasName).map(dog => ({
           ...dog,
           musherName: musher.name // Add musher name for display
         }))
@@ -3271,11 +3277,16 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
                               )}
                               
                               <div>
-                                {driverName && selectedMusher && (
+                                {driverName && selectedMusher && (() => {
+                                  // Only show dogs that actually have a name; a musher
+                                  // saved with no dog details can carry a blank placeholder
+                                  // dog, which must not appear as an empty selectable row.
+                                  const associatedDogs = (selectedMusher.dogs || []).filter(dogHasName);
+                                  return (
                                   <div className="border rounded-[12px] overflow-hidden mt-4">
                                     <div className="bg-[#F6F6F6] p-4 flex justify-between items-center">
                                       <p className="text-[16px] font-[600]">
-                                        {selectedMusher.dogs.length} Dogs associated with "{driverName}"
+                                        {associatedDogs.length} Dogs associated with "{driverName}"
                                       </p>
                                       <p className="text-[14px] text-[#696A6A]">
                                         {selectedRows.length} dogs selected
@@ -3293,16 +3304,16 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {selectedMusher.dogs.length > 0 ? (
-                                            selectedMusher.dogs.map((dog, index) => {
+                                          {associatedDogs.length > 0 ? (
+                                            associatedDogs.map((dog, index) => {
                                               // Create the same unique identifier as used in handleMusherDogSelect
                                               const uniqueId = `${dog._id}-${selectedMusher?.name || ''}`;
-                                              const isSelected = selectedRows.some(selected => 
+                                              const isSelected = selectedRows.some(selected =>
                                                 selected.id === uniqueId
                                               );
-                                              
+
                                               return (
-                                                <tr key={index} className={index !== selectedMusher.dogs.length - 1 ? "border-b" : ""}>
+                                                <tr key={index} className={index !== associatedDogs.length - 1 ? "border-b" : ""}>
                                                   <td className="p-2">
                                                     <input 
                                                       type="checkbox" 
@@ -3329,8 +3340,9 @@ const AddNewResult = ({ eventId }: { eventId: string }) => {
                                       </table>
                                     </div>
                                   </div>
-                                )}
-                                
+                                  );
+                                })()}
+
                                 {/* Divider and Other Dogs Section */}
                                 {driverName && allOtherDogs.length > 0 && (
                                   <>
