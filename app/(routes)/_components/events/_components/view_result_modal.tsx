@@ -27,7 +27,11 @@ import {
   findCollidingDriverCards,
   resolveDogRegistration,
 } from "@/lib/new-class-submission";
-import { isSameSelectableDog } from "@/lib/dog-selection";
+import {
+  dogResultName,
+  isSameSelectableDog,
+  registryDogHasName,
+} from "@/lib/dog-selection";
 import { useRouter } from "next/navigation";
 import { LogHistoryModal } from "./log_history_modal";
 import { Label } from "@/components/ui/label";
@@ -116,6 +120,8 @@ interface Dogs {
   dob: string;
   breed: string;
   driverName: string;
+  /** Only on registry dogs listed in the picker; `name` is then the pet name. */
+  pedigreeName?: string;
 }
 
 interface ViewResultModalProps {
@@ -1376,8 +1382,9 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
         // Remove the dog if already selected
         return prevRows.filter((selected) => !isSameSelectableDog(selected, dog));
       } else {
-        // Add the new dog
-        return [...prevRows, dog];
+        // Add the new dog under the name the results are recorded with
+        const { pedigreeName: _pedigreeName, ...row } = dog;
+        return [...prevRows, { ...row, name: dogResultName(dog) }];
       }
     });
   }, []);
@@ -1396,6 +1403,7 @@ export const ViewResultModal: React.FC<ViewResultModalProps> = ({
       ? selectedMusher.dogs.map((dog: any) => ({
           id: dog.nzfssNo || "",
           name: dog.name,
+          pedigreeName: dog.pedigreeName || "",
           NZFSSRegistration: dog.nzfssNo,
           dob: dog.dateOfBirth || "",
           breed: dog.breed || "",
@@ -1841,6 +1849,7 @@ console.log("editedDrivers", editedDrivers);
     const searchTerm = otherDogsSearch.toLowerCase();
     return (
       dog.name.toLowerCase().includes(searchTerm) ||
+      (dog.pedigreeName && dog.pedigreeName.toLowerCase().includes(searchTerm)) ||
       dog.breed.toLowerCase().includes(searchTerm) ||
       (dog.nzfssNo && dog.nzfssNo.toLowerCase().includes(searchTerm)) ||
       (dog.musherName && dog.musherName.toLowerCase().includes(searchTerm))
@@ -1863,10 +1872,10 @@ console.log("editedDrivers", editedDrivers);
         !isSameSelectableDog(selected, dog)
       ));
     } else {
-      // Add dog to selection
+      // Add dog to selection, under the name the results are recorded with
       const formattedDog: Dogs = {
         id: Math.random().toString(36).substr(2, 9),
-        name: dog.name || "",
+        name: dogResultName(dog),
         NZFSSRegistration: dog.nzfssNo || "",
         dob: dog.dateOfBirth || "",
         breed: dog.breed || "",
@@ -2070,9 +2079,7 @@ console.log("editedDrivers", editedDrivers);
           name: dog.name || 'Unknown',
           NZFSSRegistration: resolveDogRegistration(
             dog,
-            driverMusher?.dogs?.find(
-              (d: any) => d.name?.toLowerCase() === dog.name?.toLowerCase()
-            )
+            driverMusher?.dogs?.find((d: any) => registryDogHasName(d, dog.name))
           ),
           dob: dog.dob || '2000-01-01',
           breed: dog.breed || 'Unknown',
@@ -4180,8 +4187,7 @@ console.log("editedDrivers", editedDrivers);
                             (dog: Dogs) => {
                               // Try to find the dog in the mushers data
                               const dogDetails = musher?.dogs?.find(
-                                (d: any) =>
-                                  d.name.toLowerCase() === dog.name.toLowerCase()
+                                (d: any) => registryDogHasName(d, dog.name)
                               );
 
                               return {
@@ -4499,7 +4505,7 @@ console.log("editedDrivers", editedDrivers);
                                       className="h-4 w-4 rounded border-gray-300"
                                     />
                                   </td>
-                                  <td className="p-2">{dog.name}</td>
+                                  <td className="p-2">{dogResultName(dog)}</td>
                                   <td className="p-2">{dog.NZFSSRegistration}</td>
                                   <td className="p-2">{dog.dob}</td>
                                   <td className="p-2">{dog.breed}</td>
@@ -4604,7 +4610,7 @@ console.log("editedDrivers", editedDrivers);
                                         className="h-4 w-4 rounded border-gray-300"
                                       />
                                     </td>
-                                    <td className="p-2 font-medium">{dog.name}</td>
+                                    <td className="p-2 font-medium">{dogResultName(dog)}</td>
                                     <td className="p-2 text-sm text-gray-600">{dog.musherName}</td>
                                     <td className="p-2">{dog.nzfssNo || "-"}</td>
                                     <td className="p-2">{dog.dateOfBirth || "-"}</td>
