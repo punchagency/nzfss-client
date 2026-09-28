@@ -34,7 +34,12 @@ import {
   type ScoringEntrant,
 } from "./heat-scoring";
 import { buildMusherGroups, computeMusherRanks } from "./race-result-grouping";
-import { isSameSelectableDog, selectableDogKey } from "./dog-selection";
+import {
+  dogResultName,
+  isSameSelectableDog,
+  registryDogHasName,
+  selectableDogKey,
+} from "./dog-selection";
 
 let failures = 0;
 let passes = 0;
@@ -947,6 +952,42 @@ for (let run = 1; run <= 10; run++) {
     const d = { name: "Ghost", breed: "Malamute", NZFSSRegistration: "Unknown" };
     const e = { name: "Storm", breed: "Malamute", NZFSSRegistration: "Unknown" };
     assert.equal(isSameSelectableDog(d, e), false);
+  });
+
+  check(`run ${run}: edit picker records a dog under its pedigree name (Eric SR/011)`, () => {
+    // Editing a result and adding a driver whose dogs run under SR/011 saved
+    // the pet names ("Indy", "Stig"), while the entry form saved pedigree names
+    // — so the public results mixed the two for the same kennel.
+    const indy = { name: "Indy", pedigreeName: "Koputai Ted", breed: "Alaskan Husky", nzfssNo: "SR/011" };
+    assert.equal(dogResultName(indy), "Koputai Ted");
+    // No pedigree name on record: the pet name is all there is.
+    assert.equal(dogResultName({ name: "Stig", pedigreeName: "" }), "Stig");
+    assert.equal(dogResultName({ name: "Stig", pedigreeName: "   " }), "Stig");
+    assert.equal(dogResultName({ name: "Stig" }), "Stig");
+  });
+
+  check(`run ${run}: edit picker ticks a registry dog saved under either of its names`, () => {
+    const indy = { name: "Indy", pedigreeName: "Koputai Ted", breed: "Alaskan Husky", nzfssNo: "SR/011" };
+    const stig = { name: "Stig", pedigreeName: "Horana Raea", breed: "Alaskan Husky", nzfssNo: "SR/011" };
+    // Saved by the entry form (pedigree name) and by the old edit screen (pet name).
+    const pedigreeRow = { name: "Koputai Ted", breed: "Alaskan Husky", NZFSSRegistration: "SR/011" };
+    const petRow = { name: "Indy", breed: "Alaskan Husky", NZFSSRegistration: "SR/011" };
+    assert.equal(isSameSelectableDog(pedigreeRow, indy), true);
+    assert.equal(isSameSelectableDog(petRow, indy), true);
+    // A kennel-mate on the same registration stays a different dog.
+    assert.equal(isSameSelectableDog(pedigreeRow, stig), false);
+    assert.equal(isSameSelectableDog(petRow, stig), false);
+    // A pedigree-name match under a different registration is a different dog.
+    const elsewhere = { ...indy, nzfssNo: "RR/098" };
+    assert.equal(isSameSelectableDog(pedigreeRow, elsewhere), false);
+  });
+
+  check(`run ${run}: registry lookup finds a dog by pet or pedigree name`, () => {
+    const indy = { name: "Indy", pedigreeName: "Koputai Ted" };
+    assert.equal(registryDogHasName(indy, "koputai ted"), true);
+    assert.equal(registryDogHasName(indy, "INDY"), true);
+    assert.equal(registryDogHasName(indy, "Stig"), false);
+    assert.equal(registryDogHasName({ name: "Indy", pedigreeName: "" }, ""), false);
   });
 
   check(`run ${run}: blank registration is not treated as registered ("Unknown" coercion)`, () => {

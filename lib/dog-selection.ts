@@ -28,6 +28,11 @@ export interface SelectableDog {
   NZFSSRegistration?: string | null;
   /** Registration on a dog straight from the musher registry. */
   nzfssNo?: string | null;
+  /**
+   * Pedigree name on a dog straight from the musher registry, where `name` is
+   * its pet name. Rows already collected into the form carry only `name`.
+   */
+  pedigreeName?: string | null;
 }
 
 function registrationOf(dog: SelectableDog): string {
@@ -36,8 +41,8 @@ function registrationOf(dog: SelectableDog): string {
 }
 
 /**
- * A stable identity for a dog in the pickers. Two dogs are the same selection
- * iff their keys are equal.
+ * A stable identity for a dog in the pickers. Two dogs with equal keys are the
+ * same selection (isSameSelectableDog also accepts a pedigree-name match).
  *
  * A registration number is NOT unique per dog in this data — a musher's dogs
  * often share one kennel number (e.g. all six of a musher's dogs registered
@@ -57,7 +62,51 @@ export function selectableDogKey(dog: SelectableDog): string {
   return `nb:${name}|${breed}`;
 }
 
-/** True when two picker dogs refer to the same selectable dog. */
+/**
+ * True when two picker dogs refer to the same selectable dog: the same key, or
+ * the same registration (breed, for unregistered dogs) under either of a
+ * registry dog's names. A row added to a result may be recorded under the pet
+ * name or the pedigree name, so both have to find the registry dog.
+ */
 export function isSameSelectableDog(a: SelectableDog, b: SelectableDog): boolean {
-  return selectableDogKey(a) === selectableDogKey(b);
+  if (selectableDogKey(a) === selectableDogKey(b)) return true;
+  if (identityOf(a) !== identityOf(b)) return false;
+  const bNames = namesOf(b);
+  return namesOf(a).some((n) => bNames.includes(n));
+}
+
+/** The selectableDogKey without its name part. */
+function identityOf(dog: SelectableDog): string {
+  const reg = registrationOf(dog);
+  if (hasNzfssRegistration(reg)) return `reg:${reg.toLowerCase()}`;
+  return `nb:${(dog.breed || "").trim().toLowerCase()}`;
+}
+
+function namesOf(dog: SelectableDog): string[] {
+  return [dog.name, dog.pedigreeName]
+    .map((n) => (n || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * The name a dog is recorded under in race results: its pedigree name when it
+ * has one, otherwise its pet name. The entry form has always saved results
+ * this way; the edit screen has to match it or the public results show the
+ * same kennel's dogs under a mix of pet and pedigree names.
+ */
+export function dogResultName(dog: {
+  name?: string | null;
+  pedigreeName?: string | null;
+}): string {
+  const pedigree = (dog.pedigreeName || "").trim();
+  return pedigree || dog.name || "";
+}
+
+/** True when a registry dog goes by `name`, as either its pet or pedigree name. */
+export function registryDogHasName(
+  registryDog: { name?: string | null; pedigreeName?: string | null },
+  name: string | null | undefined
+): boolean {
+  const wanted = (name || "").trim().toLowerCase();
+  return wanted !== "" && namesOf(registryDog).includes(wanted);
 }
