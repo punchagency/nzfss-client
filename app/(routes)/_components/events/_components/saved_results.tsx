@@ -16,7 +16,7 @@ import { LogHistoryModal } from "./log_history_modal";
 import { toast } from "sonner";
 import { useTab } from "@/context/tab_context";
 import { classEarnsPoints } from "@/lib/class-eligibility";
-import { buildMusherHeatGroups, dogKey, isFinishedRun, musherKey } from "@/lib/heat-scoring";
+import { buildMusherHeatGroups, dogKey, isFinishedRun, musherKey, teamCutoff } from "@/lib/heat-scoring";
 import { GET_MUSHER_REGISTRATIONS } from "@/lib/graphql/musher";
 import {
   buildMusherRegistryIndex,
@@ -639,6 +639,8 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     points: number; 
     cutoffTime: string; 
     dogPoints: Record<string, number>;
+    /** 1 when the team finished outside the dog-points cutoff, otherwise 0. */
+    cutoffPoints?: number;
   } => {
     // Custom classes sit outside the race regulations, and Bikejoring/Canicross
     // are approved classes that still never score. Neither earns musher or dog points.
@@ -791,16 +793,18 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
     const calculatedPoints = Math.max(1, rankedGroups.length - actualRank + 1);
     const points = isRegisteredDriver ? calculatedPoints : 0;
 
-    // Calculate cutoff time for dog points (winning time * 1.25)
+    // Calculate cutoff time for dog points (winning time * 1.25). Heated
+    // races compare combined times on both sides of the cutoff.
     const winningTime = rankedGroups[0].totalSeconds;
-    const cutoffTimeSeconds = winningTime * 1.25;
-    const cutoffTime = new Date(cutoffTimeSeconds * 1000).toISOString().substr(11, 8);
+    const cutoff = teamCutoff(winningTime, ownTotalSeconds);
+    const cutoffTimeSeconds = cutoff.cutoffSeconds;
+    const cutoffTime = cutoff.cutoffTime;
 
     // Calculate dog points using Championship Harness Dog System
     const dogPoints: Record<string, number> = {};
 
     // Dogs are collected across every heat, but only those that ran them all score.
-    const isWithinCutoff = ownTotalSeconds <= cutoffTimeSeconds;
+    const isWithinCutoff = cutoff.withinCutoff;
     const isFirstPlace = actualRank === 1;
 
     for (const row of ownGroup.rows) {
@@ -840,7 +844,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
       }
     }
 
-    return { points, cutoffTime, dogPoints };
+    return { points, cutoffTime, dogPoints, cutoffPoints: cutoff.cutoffPoints };
   };
 
   // Heat 2 may already be submitted at 0 points and hidden from `entrants`.
@@ -1009,6 +1013,7 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
 
         let points = 0;
         let cutoffTime = '';
+        let cutoffPoints = 0;
         let dogPoints: Record<string, number> = {};
 
         // Get the event
@@ -1054,22 +1059,17 @@ const SavedResultsContent: React.FC = (): JSX.Element => {
           points = musherResult.points || 0;
           dogPoints = musherResult.dogPoints || {};
           cutoffTime = musherResult.cutoffTime;
+          // 1 if the team finished outside the cutoff, 0 if within. Decided
+          // in calculatePoints from the team's combined time, the same
+          // comparison that awards the dog points; this row's raceTime is
+          // only one heat of a heated race.
+          cutoffPoints = musherResult.cutoffPoints || 0;
         }
 
         // Validate points calculation
         if (typeof points !== 'number' || isNaN(points) || points < 0) {
           console.warn("Invalid points calculation for entrant:", entrant._id, "points:", points);
           points = 0;
-        }
-
-        // Calculate cutoff points: 1 if finished outside cutoff, 0 if within
-        let cutoffPoints = 0;
-        if (cutoffTime && entrant.raceTime) {
-          const cutoffSeconds = timeToSeconds(cutoffTime);
-          const raceSeconds = timeToSeconds(entrant.raceTime);
-          if (raceSeconds > cutoffSeconds) {
-            cutoffPoints = 1;
-          }
         }
 
         // Validate and convert dog points to array format

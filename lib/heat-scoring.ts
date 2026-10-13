@@ -243,3 +243,33 @@ export function buildMusherHeatGroups(
 
   return groups;
 }
+
+export interface TeamCutoff {
+  /** The cutoff in seconds: the winning team's combined time plus 25%. */
+  cutoffSeconds: number;
+  /** The cutoff as HH:MM:SS, as stored with the points. */
+  cutoffTime: string;
+  /** True when the team's combined time is within the cutoff. */
+  withinCutoff: boolean;
+  /** Stored with each dog's points: 1 when the team finished outside the cutoff, otherwise 0. */
+  cutoffPoints: number;
+}
+
+/**
+ * Where a team stands against the dog-points cutoff (winning time * 1.25).
+ *
+ * Both sides are combined heat times: the winning team's total sets the cutoff
+ * and the team's own total is measured against it. A single heat's time
+ * compared to a cutoff built from combined times puts every team in a heated
+ * race inside the cutoff, whatever its total.
+ */
+export function teamCutoff(winningSeconds: number, teamSeconds: number): TeamCutoff {
+  const cutoffSeconds = winningSeconds * 1.25;
+  const withinCutoff = teamSeconds <= cutoffSeconds;
+  return {
+    cutoffSeconds,
+    cutoffTime: new Date(cutoffSeconds * 1000).toISOString().substr(11, 8),
+    withinCutoff,
+    cutoffPoints: withinCutoff ? 0 : 1,
+  };
+}

@@ -31,6 +31,7 @@ import {
 import {
   buildMusherHeatGroups,
   dogKey,
+  teamCutoff,
   type ScoringEntrant,
 } from "./heat-scoring";
 import { buildMusherGroups, computeMusherRanks } from "./race-result-grouping";
@@ -997,6 +998,45 @@ for (let run = 1; run <= 10; run++) {
     assert.equal(isRegisteredDog({ NZFSSRegistration: "" }), false);
     assert.equal(isRegisteredDog({ NZFSSRegistration: "Unknown" }), false);
     assert.equal(isRegisteredDog({ NZFSSRegistration: ROGUE.NZFSSRegistration }), true);
+  });
+
+  check(`run ${run}: heated race — cutoff points use the team's combined time`, () => {
+    // Winner runs 10:00 + 10:00, so the cutoff is 25:00. The second team runs
+    // 12:00 + 14:00 = 26:00: outside the cutoff, although its Heat 1 time
+    // alone (the row that carries its points) is well inside it.
+    const heats = [{ heat: "Heat 1" }, { heat: "Heat 2" }];
+    const entrants = [
+      makeScoring(`k${run}1`, [ROGUE], { name: "Winner", heat: "Heat 1", raceTime: "00:10:00.00", heatsData: heats }),
+      makeScoring(`k${run}2`, [ROGUE], { name: "Winner", heat: "Heat 2", raceTime: "00:10:00.00", heatsData: heats }),
+      makeScoring(`k${run}3`, [JUGGERNAUT], { name: "Second", heat: "Heat 1", raceTime: "00:12:00.00", heatsData: heats }),
+      makeScoring(`k${run}4`, [JUGGERNAUT], { name: "Second", heat: "Heat 2", raceTime: "00:14:00.00", heatsData: heats }),
+    ];
+    const groups = buildMusherHeatGroups(entrants);
+    const winner = groups.get("winner")!;
+    const second = groups.get("second")!;
+    assert.equal(second.complete, true);
+
+    const cutoff = teamCutoff(winner.totalSeconds, second.totalSeconds);
+    assert.equal(cutoff.cutoffTime, "00:25:00");
+    assert.equal(cutoff.withinCutoff, false, "26:00 combined is outside a 25:00 cutoff");
+    assert.equal(cutoff.cutoffPoints, 1, "stored cutoffPoints must agree with the dog points");
+
+    const winnerCutoff = teamCutoff(winner.totalSeconds, winner.totalSeconds);
+    assert.equal(winnerCutoff.withinCutoff, true);
+    assert.equal(winnerCutoff.cutoffPoints, 0);
+  });
+
+  check(`run ${run}: cutoff points — boundary and fractional times`, () => {
+    // Exactly on the cutoff is within it.
+    assert.equal(teamCutoff(600, 750).cutoffPoints, 0);
+    // A fraction of a second over is outside it.
+    assert.equal(teamCutoff(600, 750.01).cutoffPoints, 1);
+    // The stored cutoff string drops fractions, but the decision does not:
+    // cutoff 12:30.75, team 12:30.50 is within it.
+    const fractional = teamCutoff(600.6, 750.5);
+    assert.equal(fractional.cutoffTime, "00:12:30");
+    assert.equal(fractional.withinCutoff, true);
+    assert.equal(fractional.cutoffPoints, 0);
   });
 }
 
